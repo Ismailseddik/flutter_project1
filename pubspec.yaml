@@ -30,6 +30,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  sqflite: ^2.0.0+4
+  path: ^1.8.3
+  # Firebase Core (required for initializing Firebase)
+  firebase_core: ^2.14.0
+
+  # Firebase Firestore (for Firestore database)
+  cloud_firestore: ^4.11.0
+
+  # Firebase Authentication (if needed for user authentication)
+  firebase_auth: ^4.16.0
 
 
   # The following adds the Cupertino Icons font to your application.
