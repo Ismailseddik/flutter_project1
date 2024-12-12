@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import '../styles.dart';
+import '../widgets/AppBarWithSyncStatus.dart';
 import '../widgets/common_header.dart';
 import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
 import 'gift_details_page.dart';
-
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 class EventListPage extends StatefulWidget {
   final int userId; // User ID is required
 
@@ -107,10 +108,17 @@ class _EventListPageState extends State<EventListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: CommonHeader(
-        title: 'Event List',
-        onSignOutTapped: () {
-          Navigator.pushNamed(context, '/login');
+      appBar: AppBarWithSyncStatus(
+        title: "Events",
+        onSignOutPressed: () async {
+          try {
+            await firebase_auth.FirebaseAuth.instance.signOut();
+            Navigator.pushReplacementNamed(context, '/login');
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error signing out: $e')),
+            );
+          }
         },
       ),
       body: Container(

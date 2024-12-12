@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../styles.dart';
 import '../Local_Database/database_helper.dart';
 import '../Firebase_Database/firebase_helper.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 
+import '../widgets/AppBarWithSyncStatus.dart';
 class GiftDetailsPage extends StatelessWidget {
   final String giftName;
   final ImageProvider giftImage;
@@ -67,13 +69,18 @@ class GiftDetailsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Gift Details',
-          style: AppStyles.headerTextStyle.copyWith(color: Colors.white),
-        ),
-        backgroundColor: Colors.teal,
-        centerTitle: true,
+      appBar: AppBarWithSyncStatus(
+        title: "Gift Details",
+        onSignOutPressed: () async {
+          try {
+            await firebase_auth.FirebaseAuth.instance.signOut();
+            Navigator.pushReplacementNamed(context, '/login');
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error signing out: $e')),
+            );
+          }
+        },
       ),
       body: Container(
         decoration: BoxDecoration(

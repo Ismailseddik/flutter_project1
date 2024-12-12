@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
 import '../styles.dart';
+import '../widgets/AppBarWithSyncStatus.dart';
 import '../widgets/common_header.dart';
 import '../widgets/profile_section.dart';
 import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
 import 'FriendEventListPage.dart';
-
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 class HomePage extends StatefulWidget {
   final int userId; // Pass the logged-in user's ID
 
@@ -49,7 +50,7 @@ class _HomePageState extends State<HomePage> {
       final fetchedFriends = await db.getFriends(widget.userId);
 
       if (fetchedFriends.isEmpty) {
-        await db.addDummyData(widget.userId); // Add dummy data for testing
+        //await db.addDummyData(widget.userId); // Add dummy data for testing
         final updatedFriends = await db.getFriends(widget.userId);
 
         setState(() {
@@ -113,10 +114,17 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: CommonHeader(
-        title: 'Friends List',
-        onSignOutTapped: () {
-          Navigator.pushNamed(context, '/login');
+      appBar: AppBarWithSyncStatus(
+        title: "Home",
+        onSignOutPressed: () async {
+          try {
+            await firebase_auth.FirebaseAuth.instance.signOut();
+            Navigator.pushReplacementNamed(context, '/login');
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error signing out: $e')),
+            );
+          }
         },
       ),
       body: Container(

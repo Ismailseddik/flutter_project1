@@ -3,8 +3,10 @@ import '../styles.dart';
 import '../Local_Database/database_helper.dart';
 import '../Firebase_Database/firebase_helper.dart';
 import '../models/models.dart';
+import '../widgets/AppBarWithSyncStatus.dart';
 import 'gift_details_page.dart';
-
+import '../notification_service/notification_service.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 class GiftListPage extends StatefulWidget {
   final int id; // Can be eventId or friendId
   final bool isFriendView; // Identify if the view is for a friend
@@ -34,7 +36,7 @@ class _GiftListPageState extends State<GiftListPage> {
   // Set the page title based on the view type
   void _setPageTitle() {
     setState(() {
-      pageTitle = 'Gifts for Event #${widget.eventId}';
+      pageTitle = 'Event #${widget.eventId} Gifts';
     });
   }
 
@@ -44,23 +46,32 @@ class _GiftListPageState extends State<GiftListPage> {
 
     try {
       if (widget.eventId != null) {
-        // Fetch gifts by eventId from Firebase first
-        gifts = await firebase.getGifts(widget.eventId!);
-        if (gifts.isEmpty) {
-          // Fall back to local database if Firebase returns no gifts
-          gifts = await db.getGifts(widget.eventId!);
+        // Fetch gifts from Firebase first to get the latest statuses
+        final userId = await db.getCurrentUserId();
+        if (userId != null) {
+          // Sync local database with Firebase
+          await firebase.syncWithLocalDatabase(db, userId);
+
+          // Fetch updated gifts from Firebase for the specific event
+          gifts = await firebase.getGifts(widget.eventId!);
+
+          // Save them locally in case they were updated in Firebase
+          for (final gift in gifts) {
+            await db.updateGift(gift.id!, {'status': gift.status}); // Update status locally
+          }
         }
+
+        // Always load the gifts from the local database
+        gifts = await db.getGifts(widget.eventId!);
       } else {
         print('Error: eventId is null. Unable to fetch gifts.');
       }
 
-      setState(() {}); // Refresh the UI with the loaded gifts
+      setState(() {}); // Refresh the UI with updated gifts
     } catch (e) {
       print('Error loading gifts: $e');
     }
   }
-
-
 
 
   Future<void> _showAddGiftDialog() async {
@@ -75,7 +86,6 @@ class _GiftListPageState extends State<GiftListPage> {
         title: Text('Add Gift'),
         content: SingleChildScrollView(
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
               TextField(controller: nameController, decoration: InputDecoration(labelText: 'Gift Name')),
               TextField(controller: categoryController, decoration: InputDecoration(labelText: 'Category')),
@@ -109,12 +119,18 @@ class _GiftListPageState extends State<GiftListPage> {
                 category: categoryController.text,
                 price: double.parse(priceController.text),
                 status: 'Available',
-                eventId: widget.eventId??1, // Assign the current eventId
+                eventId: widget.eventId!,
                 description: descriptionController.text,
               );
 
-              await DatabaseHelper.instance.insertGift(newGift);
-              _loadGifts(); // Reload the gifts list
+              try {
+                final giftId = await DatabaseHelper.instance.insertGift(newGift);
+                print('Gift added successfully with ID: $giftId');
+              } catch (e) {
+                print('Error adding gift: $e');
+              }
+
+              await _loadGifts(); // Reload the list after insertion
               Navigator.pop(context);
             },
             child: Text('Add'),
@@ -123,6 +139,8 @@ class _GiftListPageState extends State<GiftListPage> {
       ),
     );
   }
+
+
 
 
   Future<void> _deleteGift(int giftId) async {
@@ -266,9 +284,18 @@ class _GiftListPageState extends State<GiftListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(pageTitle),
-        backgroundColor: Colors.teal,
+      appBar: AppBarWithSyncStatus(
+        title: pageTitle,
+        onSignOutPressed: () async {
+          try {
+            await firebase_auth.FirebaseAuth.instance.signOut();
+            Navigator.pushReplacementNamed(context, '/login');
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error signing out: $e')),
+            );
+          }
+        },
       ),
       body: Container(
         decoration: BoxDecoration(
