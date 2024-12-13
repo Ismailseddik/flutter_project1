@@ -7,6 +7,7 @@ import '../widgets/AppBarWithSyncStatus.dart';
 import 'gift_details_page.dart';
 import '../notification_service/notification_service.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+
 class GiftListPage extends StatefulWidget {
   final int id; // Can be eventId or friendId
   final bool isFriendView; // Identify if the view is for a friend
@@ -24,7 +25,10 @@ class GiftListPage extends StatefulWidget {
 
 class _GiftListPageState extends State<GiftListPage> {
   List<Gift> gifts = []; // Store gifts dynamically
+  List<Gift> filteredGifts = []; // For filtering
   String pageTitle = '';
+  String? selectedCategory;
+  String? selectedStatus;
 
   @override
   void initState() {
@@ -46,13 +50,10 @@ class _GiftListPageState extends State<GiftListPage> {
 
     try {
       if (widget.eventId != null) {
-        // Fetch gifts from Firebase first to get the latest statuses
         final userId = await db.getCurrentUserId();
         if (userId != null) {
-          // Sync local database with Firebase
           await firebase.syncWithLocalDatabase(db, userId);
 
-          // Fetch updated gifts from Firebase for the specific event
           gifts = await firebase.getGifts(widget.eventId!);
 
           // Save them locally in case they were updated in Firebase
@@ -61,8 +62,8 @@ class _GiftListPageState extends State<GiftListPage> {
           }
         }
 
-        // Always load the gifts from the local database
         gifts = await db.getGifts(widget.eventId!);
+        filteredGifts = List.from(gifts); // Initialize filtered list
       } else {
         print('Error: eventId is null. Unable to fetch gifts.');
       }
@@ -73,6 +74,87 @@ class _GiftListPageState extends State<GiftListPage> {
     }
   }
 
+  void _applyFilters() {
+    setState(() {
+      filteredGifts = gifts.where((gift) {
+        final categoryMatch = selectedCategory == null || gift.category == selectedCategory;
+        final statusMatch = selectedStatus == null || gift.status == selectedStatus;
+        return categoryMatch && statusMatch;
+      }).toList();
+    });
+  }
+
+  Future<void> _showFilterDialog() async {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('Filter Gifts'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButton<String>(
+                    value: selectedCategory,
+                    hint: Text('Select Category'),
+                    items: gifts
+                        .map((gift) => gift.category)
+                        .toSet()
+                        .map((category) => DropdownMenuItem<String>(
+                      value: category,
+                      child: Text(category),
+                    ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        selectedCategory = value;
+                      });
+                    },
+                  ),
+                  DropdownButton<String>(
+                    value: selectedStatus,
+                    hint: Text('Select Status'),
+                    items: ['Available', 'Pledged']
+                        .map((status) => DropdownMenuItem<String>(
+                      value: status,
+                      child: Text(status),
+                    ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        selectedStatus = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      selectedCategory = null;
+                      selectedStatus = null;
+                    });
+                    _applyFilters();
+                    Navigator.pop(context);
+                  },
+                  child: Text('Clear'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    _applyFilters();
+                    Navigator.pop(context);
+                  },
+                  child: Text('Apply'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   Future<void> _showAddGiftDialog() async {
     final TextEditingController nameController = TextEditingController();
@@ -140,12 +222,8 @@ class _GiftListPageState extends State<GiftListPage> {
     );
   }
 
-
-
-
   Future<void> _deleteGift(int giftId) async {
     if (widget.isFriendView) {
-      // Do nothing if viewing a friend's gift list
       return;
     }
 
@@ -169,18 +247,11 @@ class _GiftListPageState extends State<GiftListPage> {
 
     if (confirmed == true) {
       try {
-        // Delete from Firebase
         await FirebaseHelper.instance.deleteGift(giftId);
-
-        // Delete from local database
         await DatabaseHelper.instance.deleteGift(giftId);
-
-        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gift deleted successfully!')),
         );
-
-        // Refresh the gift list
         _loadGifts();
       } catch (e) {
         print('Error deleting gift: $e');
@@ -190,7 +261,6 @@ class _GiftListPageState extends State<GiftListPage> {
       }
     }
   }
-
 
   Future<void> _editGift(Gift gift) async {
     if (widget.isFriendView || gift.status == 'Pledged') {
@@ -213,18 +283,9 @@ class _GiftListPageState extends State<GiftListPage> {
           content: SingleChildScrollView(
             child: Column(
               children: [
-                TextField(
-                  controller: nameController,
-                  decoration: InputDecoration(labelText: 'Name'),
-                ),
-                TextField(
-                  controller: descriptionController,
-                  decoration: InputDecoration(labelText: 'Description'),
-                ),
-                TextField(
-                  controller: categoryController,
-                  decoration: InputDecoration(labelText: 'Category'),
-                ),
+                TextField(controller: nameController, decoration: InputDecoration(labelText: 'Name')),
+                TextField(controller: descriptionController, decoration: InputDecoration(labelText: 'Description')),
+                TextField(controller: categoryController, decoration: InputDecoration(labelText: 'Category')),
                 TextField(
                   controller: priceController,
                   decoration: InputDecoration(labelText: 'Price'),
@@ -252,17 +313,11 @@ class _GiftListPageState extends State<GiftListPage> {
                 );
 
                 try {
-                  // Update the gift locally and in Firebase
-                  await DatabaseHelper.instance.updateGift(
-                    updatedGift.id!,
-                    updatedGift.toMap(),
-                  );
-
+                  await DatabaseHelper.instance.updateGift(updatedGift.id!, updatedGift.toMap());
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Gift updated successfully!')),
                   );
-
-                  _loadGifts(); // Refresh the gift list
+                  _loadGifts();
                   Navigator.pop(context);
                 } catch (e) {
                   print('Error updating gift: $e');
@@ -278,8 +333,6 @@ class _GiftListPageState extends State<GiftListPage> {
       },
     );
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -297,99 +350,103 @@ class _GiftListPageState extends State<GiftListPage> {
           }
         },
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.teal.shade50, Colors.teal.shade300],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: ElevatedButton(
+              onPressed: _showFilterDialog,
+              child: Text('Filter Gifts'),
+            ),
           ),
-        ),
-        child: gifts.isEmpty
-            ? Center(
-          child: Text(
-            'No gifts to display',
-            style: AppStyles.subtitleTextStyle.copyWith(fontSize: 18),
-          ),
-        )
-            : ListView.builder(
-          padding: const EdgeInsets.all(16.0),
-          itemCount: gifts.length,
-          itemBuilder: (context, index) {
-            final gift = gifts[index];
-            return Card(
-              margin: EdgeInsets.symmetric(vertical: 8.0),
-              elevation: 4,
-              child: ListTile(
-                leading: Icon(
-                  Icons.card_giftcard,
-                  color: Colors.teal,
-                  size: 40,
-                ),
-                title: Text(
-                  gift.name,
-                  style: AppStyles.headerTextStyle.copyWith(fontSize: 18),
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(height: 4),
-                    Text('Category: ${gift.category}', style: AppStyles.subtitleTextStyle),
-                    SizedBox(height: 4),
-                    Text('Price: \$${gift.price.toStringAsFixed(2)}', style: AppStyles.subtitleTextStyle),
-                    SizedBox(height: 4),
-                    Text(
-                      'Status: ${gift.status}',
-                      style: AppStyles.subtitleTextStyle.copyWith(
-                          color: gift.status == 'Pledged' ? Colors.green : Colors.red),
-                    ),
-                  ],
-                ),
-                trailing: widget.isFriendView
-                    ? null // No edit/delete for friend's gifts
-                    : PopupMenuButton<String>(
-                  onSelected: (action) {
-                    if (action == 'edit') {
-                      _editGift(gift);
-                    } else if (action == 'delete') {
-                      _deleteGift(gift.id!);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (gift.status != 'Pledged')
-                      PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Edit'),
-                      ),
-                    if (gift.status != 'Pledged')
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Delete'),
-                      ),
-                  ],
-                ),
-                onTap: () async {
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => GiftDetailsPage(
-                        giftName: gift.name,
-                        giftImage: AssetImage('assets/gift_image.png'),
-                        giftId: gift.id!,
-                      ),
-                    ),
-                  );
-                  if (result == true) {
-                    _loadGifts();
-                  }
-                },
+          Expanded(
+            child: filteredGifts.isEmpty
+                ? Center(
+              child: Text(
+                'No gifts to display',
+                style: AppStyles.subtitleTextStyle.copyWith(fontSize: 18),
               ),
-            );
-          },
-        ),
+            )
+                : ListView.builder(
+              padding: const EdgeInsets.all(16.0),
+              itemCount: filteredGifts.length,
+              itemBuilder: (context, index) {
+                final gift = filteredGifts[index];
+                return Card(
+                  margin: EdgeInsets.symmetric(vertical: 8.0),
+                  elevation: 4,
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.card_giftcard,
+                      color: Colors.teal,
+                      size: 40,
+                    ),
+                    title: Text(
+                      gift.name,
+                      style: AppStyles.headerTextStyle.copyWith(fontSize: 18),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(height: 4),
+                        Text('Category: ${gift.category}', style: AppStyles.subtitleTextStyle),
+                        SizedBox(height: 4),
+                        Text('Price: \$${gift.price.toStringAsFixed(2)}', style: AppStyles.subtitleTextStyle),
+                        SizedBox(height: 4),
+                        Text(
+                          'Status: ${gift.status}',
+                          style: AppStyles.subtitleTextStyle.copyWith(
+                              color: gift.status == 'Pledged' ? Colors.green : Colors.red),
+                        ),
+                      ],
+                    ),
+                    trailing: widget.isFriendView
+                        ? null
+                        : PopupMenuButton<String>(
+                      onSelected: (action) {
+                        if (action == 'edit') {
+                          _editGift(gift);
+                        } else if (action == 'delete') {
+                          _deleteGift(gift.id!);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        if (gift.status != 'Pledged')
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Edit'),
+                          ),
+                        if (gift.status != 'Pledged')
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Delete'),
+                          ),
+                      ],
+                    ),
+                    onTap: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => GiftDetailsPage(
+                            giftName: gift.name,
+                            giftImage: AssetImage('assets/gift_image.png'),
+                            giftId: gift.id!,
+                          ),
+                        ),
+                      );
+                      if (result == true) {
+                        _loadGifts();
+                      }
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: widget.isFriendView
-          ? null // No "Add Gift" button for friend's gifts
+          ? null
           : FloatingActionButton(
         backgroundColor: Colors.teal,
         child: Icon(Icons.add),

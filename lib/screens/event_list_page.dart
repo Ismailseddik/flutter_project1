@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../styles.dart';
 import '../widgets/AppBarWithSyncStatus.dart';
-import '../widgets/common_header.dart';
 import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
 import 'gift_details_page.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+
 class EventListPage extends StatefulWidget {
   final int userId; // User ID is required
 
@@ -17,6 +17,9 @@ class EventListPage extends StatefulWidget {
 
 class _EventListPageState extends State<EventListPage> {
   List<Event> events = [];
+  List<Event> filteredEvents = [];
+  String? selectedDate;
+  String? selectedLocation;
 
   @override
   void initState() {
@@ -35,7 +38,92 @@ class _EventListPageState extends State<EventListPage> {
 
     setState(() {
       events = fetchedEvents;
+      filteredEvents = List.from(events); // Initialize filtered list
     });
+  }
+
+  void _applyFilters() {
+    setState(() {
+      filteredEvents = events.where((event) {
+        final dateMatch = selectedDate == null || event.date == selectedDate;
+        final locationMatch = selectedLocation == null || event.location == selectedLocation;
+        return dateMatch && locationMatch;
+      }).toList();
+    });
+  }
+
+  Future<void> _showFilterDialog() async {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('Filter Events'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButton<String>(
+                    value: selectedDate,
+                    hint: Text('Select Date'),
+                    items: events
+                        .map((event) => event.date)
+                        .toSet()
+                        .map((date) => DropdownMenuItem<String>(
+                      value: date,
+                      child: Text(date),
+                    ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        selectedDate = value;
+                      });
+                    },
+                  ),
+                  DropdownButton<String>(
+                    value: selectedLocation,
+                    hint: Text('Select Location'),
+                    items: events
+                        .map((event) => event.location)
+                        .toSet()
+                        .map((location) => DropdownMenuItem<String>(
+                      value: location,
+                      child: Text(location),
+                    ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        selectedLocation = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      selectedDate = null;
+                      selectedLocation = null;
+                    });
+                    _applyFilters();
+                    Navigator.pop(context);
+                  },
+                  child: Text('Clear'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    _applyFilters();
+                    Navigator.pop(context);
+                  },
+                  child: Text('Apply'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _showAddEventDialog(BuildContext context) async {
@@ -43,7 +131,7 @@ class _EventListPageState extends State<EventListPage> {
     final TextEditingController dateController = TextEditingController();
     final TextEditingController locationController = TextEditingController();
 
-    bool isSaving = false; // Add this flag to prevent multiple submissions
+    bool isSaving = false;
 
     showDialog(
       context: context,
@@ -79,7 +167,7 @@ class _EventListPageState extends State<EventListPage> {
                     }
 
                     setState(() {
-                      isSaving = true; // Disable button after the first press
+                      isSaving = true;
                     });
 
                     final db = DatabaseHelper.instance;
@@ -133,26 +221,35 @@ class _EventListPageState extends State<EventListPage> {
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
-              ElevatedButton(
-                style: AppStyles.sortButtonStyle,
-                onPressed: () {
-                  // Sorting functionality
-                },
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.sort, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text('Sort By', style: TextStyle(color: Colors.white)),
-                  ],
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  ElevatedButton(
+                    style: AppStyles.sortButtonStyle, // Reused styling from the unused dropdown
+                    onPressed: _showFilterDialog,
+                    child: Row(
+                      children: [
+                        Icon(Icons.filter_list, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text('Filter Events', style: TextStyle(color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               SizedBox(height: 20),
               Expanded(
-                child: ListView.builder(
-                  itemCount: events.length,
+                child: filteredEvents.isEmpty
+                    ? Center(
+                  child: Text(
+                    'No events to display',
+                    style: AppStyles.subtitleTextStyle.copyWith(fontSize: 18),
+                  ),
+                )
+                    : ListView.builder(
+                  itemCount: filteredEvents.length,
                   itemBuilder: (context, index) {
-                    final event = events[index];
+                    final event = filteredEvents[index];
                     return Card(
                       margin: EdgeInsets.symmetric(vertical: 8),
                       child: ExpansionTile(
@@ -176,14 +273,13 @@ class _EventListPageState extends State<EventListPage> {
                                   builder: (context) => GiftDetailsPage(
                                     giftName: gift.name,
                                     giftImage: AssetImage('assets/default_gift.png'),
-                                    giftId: gift.id!, // Pass the correct giftId here
+                                    giftId: gift.id!,
                                   ),
                                 ),
                               );
                             },
                           );
                         }).toList(),
-
                       ),
                     );
                   },

@@ -154,7 +154,31 @@ class FirebaseHelper {
       print('Error deleting gift: $e');
     }
   }
+  Future<List<Gift>> getGiftsWithCriteria(Map<String, dynamic> criteria) async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('gifts')
+          .where('friendId', isEqualTo: criteria['friendId'])
+          .where('status', isEqualTo: criteria['status'])
+          .get();
 
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return Gift(
+          id: int.parse(doc.id),
+          name: data['name'],
+          category: data['category'],
+          price: data['price'],
+          status: data['status'],
+          friendId: data['friendId'],
+          eventId: data['eventId'], description: '',
+        );
+      }).toList();
+    } catch (e) {
+      print('Error fetching gifts with criteria: $e');
+      return [];
+    }
+  }
   // === FRIENDS COLLECTION ===
   Future<void> addFriend(Friend friend) async {
     try {
