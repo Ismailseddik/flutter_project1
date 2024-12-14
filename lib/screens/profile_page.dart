@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import '../styles.dart';
+import '../widgets/AppBarWithSyncStatus.dart';
 import '../widgets/common_header.dart';
 import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
-
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 class ProfilePage extends StatefulWidget {
   final int userId; // Pass the logged-in user's ID
 
@@ -88,10 +89,17 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: CommonHeader(
-        title: 'Profile',
-        onSignOutTapped: () {
-          Navigator.pushNamed(context, '/login');
+      appBar: AppBarWithSyncStatus(
+        title: "Home",
+        onSignOutPressed: () async {
+          try {
+            await firebase_auth.FirebaseAuth.instance.signOut();
+            Navigator.pushReplacementNamed(context, '/login');
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error signing out: $e')),
+            );
+          }
         },
       ),
       body: Padding(

@@ -10,21 +10,39 @@ class LoginPage extends StatelessWidget {
 
   Future<void> _login(BuildContext context) async {
     try {
-      // Use Firebase Authentication to log in the user
+      // Authenticate the user with Firebase
       final userCredential = await firebase_auth.FirebaseAuth.instance.signInWithEmailAndPassword(
         email: emailController.text,
         password: passwordController.text,
       );
 
-      // Retrieve the user ID from Firestore
-      final firebaseUser = await FirebaseHelper.instance.getUserIdByEmail(emailController.text);
+      // Get the user ID from Firebase Firestore
+      final firebaseHelper = FirebaseHelper.instance;
+      final dbHelper = DatabaseHelper.instance;
 
-      if (firebaseUser != null) {
-        // Navigate to the HomePage
-        Navigator.pushReplacementNamed(context, '/home', arguments: firebaseUser);
+      final firebaseUserId = await firebaseHelper.getUserIdByEmail(emailController.text);
+
+      if (firebaseUserId != null) {
+        // Fetch the user data from Firestore
+        final firebaseUser = await firebaseHelper.getUser(firebaseUserId);
+
+        if (firebaseUser != null) {
+          // Save the user data to the local database
+          await dbHelper.insertUser(firebaseUser);
+
+          // Sync other data (events, gifts, etc.) for this user
+          await firebaseHelper.syncWithLocalDatabase(dbHelper, firebaseUserId);
+
+          // Navigate to the HomePage
+          Navigator.pushReplacementNamed(context, '/home', arguments: firebaseUserId);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('User data not found in Firestore')),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('User not found in the database')),
+          SnackBar(content: Text('User not found in Firebase')),
         );
       }
     } catch (e) {
@@ -33,6 +51,9 @@ class LoginPage extends StatelessWidget {
       );
     }
   }
+
+
+
 
   @override
   Widget build(BuildContext context) {

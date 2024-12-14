@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../Firebase_Database/firebase_helper.dart';
 import '../models/models.dart'; // Import the models for Users, Events, Gifts, Friends
-
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
   static Database? _database;
@@ -92,18 +92,38 @@ class DatabaseHelper {
   // Insert a new user during sign-up
   Future<int> insertUser(User user) async {
     final db = await instance.database;
-    int result = await db.insert('users', user.toMap());
 
-    // Trigger sync after user creation
-    try {
-      await FirebaseHelper.instance.syncWithLocalDatabase(this);
-      print('User sync successful after insertion');
-    } catch (e) {
-      print('Error syncing user: $e');
+    // Check if the user already exists
+    final existingUser = await db.query(
+      'users',
+      where: 'id = ?',
+      whereArgs: [user.id],
+    );
+
+    if (existingUser.isNotEmpty) {
+      // Update the existing user record
+      await db.update(
+        'users',
+        user.toMap(),
+        where: 'id = ?',
+        whereArgs: [user.id],
+      );
+    } else {
+      // Insert new user record
+      await db.insert('users', user.toMap());
     }
 
-    return result;
+    // Trigger user-specific sync
+    try {
+      await FirebaseHelper.instance.syncWithLocalDatabase(this, user.id!);
+      print('Sync completed successfully for user: ${user.id}');
+    } catch (e) {
+      print('Error syncing after user insertion: $e');
+    }
+
+    return user.id!;
   }
+
 
   // Get user by ID
   Future<User> getUser(int userId) async {
@@ -140,17 +160,27 @@ class DatabaseHelper {
     final db = await database;
 
     try {
-      // Assuming there's a 'current_user' table or a 'logged_in' field in the 'users' table
-      // to identify the current user. Adjust the query to your schema.
-      final result = await db.query(
-        'users',
-        where: 'logged_in = ?', // Check if this user is logged in
-        whereArgs: [1], // Assuming 1 represents "true"
-        limit: 1,
-      );
-
+      // Check if the logged_in column exists
+      final result = await db.query('sqlite_master', where: 'name = ? AND sql LIKE ?', whereArgs: ['users', '%logged_in%']);
       if (result.isNotEmpty) {
-        return result.first['id'] as int; // Return the user's ID
+        // logged_in column exists
+        final userResult = await db.query(
+          'users',
+          where: 'logged_in = ?',
+          whereArgs: [1],
+          limit: 1,
+        );
+
+        if (userResult.isNotEmpty) {
+          return userResult.first['id'] as int;
+        }
+      } else {
+        // Fallback to Firebase Authentication
+        final firebase_auth.User? firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+        if (firebaseUser != null) {
+          final localUser = await getUserByEmail(firebaseUser.email!);
+          return localUser?.id;
+        }
       }
     } catch (e) {
       print('Error fetching current user ID: $e');
@@ -158,6 +188,20 @@ class DatabaseHelper {
 
     return null; // Return null if no logged-in user is found
   }
+
+  Future<User?> getUserByEmail(String email) async {
+    final db = await database;
+    try {
+      final result = await db.query('users', where: 'email = ?', whereArgs: [email]);
+      if (result.isNotEmpty) {
+        return User.fromMap(result.first);
+      }
+    } catch (e) {
+      print('Error fetching user by email: $e');
+    }
+    return null;
+  }
+
 
   // ======== EVENT OPERATIONS ========
 
@@ -180,7 +224,7 @@ class DatabaseHelper {
 
     // Trigger sync after inserting the event
     try {
-      await FirebaseHelper.instance.syncWithLocalDatabase(this);
+      await FirebaseHelper.instance.syncWithLocalDatabase(this,event.userId);
       print('Sync after creating event successful!');
     } catch (e) {
       print('Error syncing after creating event: $e');
@@ -204,18 +248,42 @@ class DatabaseHelper {
   // ======== GIFT OPERATIONS ========
 
   // Insert a new gift
-  Future<void> insertGift(Gift gift) async {
+  Future<int> insertGift(Gift gift) async {
     final db = await instance.database;
-    await db.insert('gifts', gift.toMap());
 
-    // Trigger sync after gift insertion
     try {
-      await FirebaseHelper.instance.syncWithLocalDatabase(this);
-      print('Sync after creating gift successful!');
+      // Insert the gift into the local database
+      final giftId = await db.insert('gifts', gift.toMap());
+      print('Gift inserted successfully with ID: $giftId for eventId: ${gift.eventId}');
+
+      // Sync the gift to Firebase
+      final currentUserId = await getCurrentUserId();
+      if (currentUserId != null) {
+        // Create a new gift object with the assigned ID
+        final Gift updatedGift = Gift(
+          id: giftId,
+          name: gift.name,
+          description: gift.description,
+          category: gift.category,
+          price: gift.price,
+          status: gift.status,
+          eventId: gift.eventId,
+          friendId: gift.friendId,
+        );
+        await FirebaseHelper.instance.createGift(updatedGift); // Sync with Firebase
+        print('Gift synced with Firebase successfully!');
+      } else {
+        print('Error: User ID not found. Unable to sync gift.');
+      }
+
+      return giftId; // Return the inserted gift's ID
     } catch (e) {
-      print('Error syncing after creating gift: $e');
+      print('Error inserting gift: $e');
+      rethrow;
     }
   }
+
+
 
   // Get gifts by event ID
   Future<List<Gift>> getGifts(int eventId) async {
@@ -345,7 +413,7 @@ class DatabaseHelper {
 
     // Trigger sync after adding a friend
     try {
-      await FirebaseHelper.instance.syncWithLocalDatabase(this);
+      await FirebaseHelper.instance.syncWithLocalDatabase(this,friend.userId);
       print('Sync after adding friend successful!');
     } catch (e) {
       print('Error syncing after adding friend: $e');
@@ -386,7 +454,7 @@ class DatabaseHelper {
   }
 
 
-  // ======== DUMMY DATA FOR TESTING ========
+  /*// ======== DUMMY DATA FOR TESTING ========
 
   Future<void> addDummyData(int userId) async {
     final db = await instance.database;
@@ -434,7 +502,7 @@ class DatabaseHelper {
     for (var gift in dummyGifts) {
       await insertGift(gift);
     }
-  }
+  }*/
   // ======== SYNCING METHODS ========
 
   Future<List<User>> getAllUsers() async {

@@ -5,6 +5,7 @@ import 'package:trial/screens/sign_up_page.dart';
 import 'Firebase_Database/firebase_helper.dart';
 import 'Local_Database/database_helper.dart';
 import 'debug.dart';
+import 'notification_service/notification_service.dart';
 import 'screens/FriendEventListPage.dart';
 import 'screens/home_page.dart';
 import 'screens/event_list_page.dart';
@@ -17,12 +18,14 @@ void main() async {
   // Sync local database with Firebase
   final dbHelper = DatabaseHelper.instance;
   final firebaseHelper = FirebaseHelper.instance;
-  try {
+/*  try {
     await firebaseHelper.syncWithLocalDatabase(dbHelper);
     print('Initial sync with Firebase completed successfully.');
   } catch (e) {
     print('Error during initial sync: $e');
-  }
+  }*/
+ // final NotificationService notificationService = NotificationService();
+ // await notificationService.init();
   runApp(MyApp());
 }
 

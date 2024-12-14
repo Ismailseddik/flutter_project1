@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../styles.dart';
 import '../Local_Database/database_helper.dart';
 import '../Firebase_Database/firebase_helper.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+
+import '../widgets/AppBarWithSyncStatus.dart';
 
 class GiftDetailsPage extends StatelessWidget {
   final String giftName;
@@ -14,9 +17,30 @@ class GiftDetailsPage extends StatelessWidget {
     required this.giftId,
   });
 
+  // Helper function to fetch the current userId
+  Future<int?> _getCurrentUserId() async {
+    final db = DatabaseHelper.instance;
+    try {
+      final userId = await db.getCurrentUserId(); // Fetch user ID from the local database
+      return userId;
+    } catch (e) {
+      print('Error fetching current user ID: $e');
+      return null;
+    }
+  }
+
   Future<void> _pledgeGift(BuildContext context) async {
     final db = DatabaseHelper.instance;
     final firebase = FirebaseHelper.instance;
+
+    // Fetch the current user ID dynamically
+    final currentUserId = await _getCurrentUserId();
+    if (currentUserId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to fetch user ID. Please try again.')),
+      );
+      return;
+    }
 
     // Ask for confirmation before pledging
     final pledged = await showDialog<bool>(
@@ -39,8 +63,11 @@ class GiftDetailsPage extends StatelessWidget {
 
     if (pledged == true) {
       try {
-        // Try updating status in Firebase first
-        await firebase.updateGiftStatus(giftId, 'Pledged');
+        // Try updating status and friendId in Firebase first
+        await firebase.updateGift(giftId, {
+          'status': 'Pledged',
+          'friendId': currentUserId, // Assign the logged-in userId as friendId
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gift pledged successfully!')),
         );
@@ -49,7 +76,10 @@ class GiftDetailsPage extends StatelessWidget {
 
         // If Firebase fails, fallback to local database
         try {
-          await db.updateGift(giftId, {'status': 'Pledged'});
+          await db.updateGift(giftId, {
+            'status': 'Pledged',
+            'friendId': currentUserId, // Assign the logged-in userId as friendId locally
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Gift pledged locally!')),
           );
@@ -60,20 +90,26 @@ class GiftDetailsPage extends StatelessWidget {
         }
       }
 
-      Navigator.pop(context); // Close the details page after action
+      // Notify GiftListPage to refresh by syncing upon returning
+      Navigator.pop(context, true); // Pass `true` to indicate refresh is needed
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Gift Details',
-          style: AppStyles.headerTextStyle.copyWith(color: Colors.white),
-        ),
-        backgroundColor: Colors.teal,
-        centerTitle: true,
+      appBar: AppBarWithSyncStatus(
+        title: "Gift Details",
+        onSignOutPressed: () async {
+          try {
+            await firebase_auth.FirebaseAuth.instance.signOut();
+            Navigator.pushReplacementNamed(context, '/login');
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error signing out: $e')),
+            );
+          }
+        },
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -105,56 +141,9 @@ class GiftDetailsPage extends StatelessWidget {
                   ),
                   SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: () async {
-                      final pledged = await showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: Text('Pledge Gift'),
-                          content: Text('Are you sure you want to pledge this gift?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, true),
-                              child: Text('Pledge'),
-                            ),
-                          ],
-                        ),
-                      );
-
-                      if (pledged == true) {
-                        try {
-                          // Update gift status in Firebase
-                          await FirebaseHelper.instance.updateGiftStatus(
-                            giftId, // Pass the gift ID
-                            'Pledged',
-                          );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Gift status updated in Firebase!')),
-                          );
-                        } catch (e) {
-                          print('Error updating gift status in Firebase: $e');
-
-                          // Fall back to updating the local database
-                          await DatabaseHelper.instance.updateGiftStatus(
-                            giftId,
-                            'Pledged',
-                          );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Gift status updated locally!')),
-                          );
-                        }
-
-                        Navigator.pop(context, true); // Notify GiftListPage to refresh
-                      }
-                    },
+                    onPressed: () => _pledgeGift(context),
                     child: Text('Pledge to Gift'),
                   ),
-
-
-
                   SizedBox(height: 20),
                   Text(
                     'This gift is perfect for your loved ones and will be a memorable addition to their collection.',

@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:trial/Local_Database/database_helper.dart';
+import '../SyncStatusManager.dart';
 import '../models/models.dart'; // Import your models for consistency
-
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 class FirebaseHelper {
   static final FirebaseHelper instance = FirebaseHelper._init();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -88,12 +89,17 @@ class FirebaseHelper {
   // === GIFTS COLLECTION ===
   Future<void> createGift(Gift gift) async {
     try {
+      if (gift.id == null) {
+        throw Exception('Gift ID is null. Cannot create gift in Firebase.');
+      }
       await _firestore.collection('gifts').doc(gift.id.toString()).set(gift.toMap());
+      print('Gift created successfully in Firebase with ID: ${gift.id}');
     } catch (e) {
-      print('Error creating gift: $e');
+      print('Error creating gift in Firebase: $e');
       rethrow;
     }
   }
+
   Future<void> updateGift(int giftId, Map<String, dynamic> updates) async {
     final firestore = FirebaseFirestore.instance;
 
@@ -148,7 +154,31 @@ class FirebaseHelper {
       print('Error deleting gift: $e');
     }
   }
+  Future<List<Gift>> getGiftsWithCriteria(Map<String, dynamic> criteria) async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('gifts')
+          .where('friendId', isEqualTo: criteria['friendId'])
+          .where('status', isEqualTo: criteria['status'])
+          .get();
 
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return Gift(
+          id: int.parse(doc.id),
+          name: data['name'],
+          category: data['category'],
+          price: data['price'],
+          status: data['status'],
+          friendId: data['friendId'],
+          eventId: data['eventId'], description: '',
+        );
+      }).toList();
+    } catch (e) {
+      print('Error fetching gifts with criteria: $e');
+      return [];
+    }
+  }
   // === FRIENDS COLLECTION ===
   Future<void> addFriend(Friend friend) async {
     try {
@@ -198,57 +228,120 @@ class FirebaseHelper {
   }
 
   // === SYNCING FUNCTIONS ===
-  Future<void> syncWithLocalDatabase(DatabaseHelper dbHelper) async {
-    // Sync Users
-    final users = await dbHelper.getAllUsers();
-    for (var user in users) {
-      try {
-        final firebaseUser = await getUser(user.id!);
-        if (firebaseUser == null) {
-          await createUser(user);
-        }
-      } catch (e) {
-        print('Error syncing user: $e');
+  Future<void> syncWithLocalDatabase(DatabaseHelper dbHelper, int userId) async {
+    try {
+      syncStatusManager.updateStatus("Syncing...");
+      // === Sync User Data ===
+      final firebase_auth.User? firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+      if (firebaseUser == null) {
+        throw Exception('No user logged in via Firebase Authentication.');
       }
-    }
 
-    // Sync Events
-    final events = await dbHelper.getAllEvents();
-    for (var event in events) {
-      try {
-        final firebaseEvents = await getEvents(event.userId);
-        if (!firebaseEvents.any((e) => e.id == event.id)) {
-          await createEvent(event);
-        }
-      } catch (e) {
-        print('Error syncing event: $e');
-      }
-    }
+      // Fetch user from Firebase
+      final firebaseUserDoc = await _firestore.collection('users').doc(userId.toString()).get();
+      if (firebaseUserDoc.exists) {
+        final user = User.fromMap(firebaseUserDoc.data()!);
 
-    // Sync Gifts
-    final gifts = await dbHelper.getAllGifts();
-    for (var gift in gifts) {
-      try {
-        final firebaseGifts = await getGifts(gift.eventId);
-        if (!firebaseGifts.any((g) => g.id == gift.id)) {
-          await createGift(gift);
+        // Check if the user exists locally
+        User? localUser = await dbHelper.getUser(user.id!);
+        if (localUser == null) {
+          localUser = await dbHelper.getUserByEmail(firebaseUser.email!);
         }
-      } catch (e) {
-        print('Error syncing gift: $e');
-      }
-    }
 
-    // Sync Friends
-    final friends = await dbHelper.getAllFriends();
-    for (var friend in friends) {
-      try {
-        final firebaseFriends = await getFriends(friend.userId);
-        if (!firebaseFriends.any((f) => f.friendId == friend.friendId)) {
-          await addFriend(friend);
+        // Insert user locally if missing
+        if (localUser == null) {
+          await dbHelper.insertUser(user);
         }
-      } catch (e) {
-        print('Error syncing friend: $e');
       }
+
+      // === Sync Events for the User ===
+      final firebaseEvents = await _firestore
+          .collection('events')
+          .where('userId', isEqualTo: userId)
+          .get();
+      final localEvents = await dbHelper.getEvents(userId);
+
+      // Push local events to Firebase
+      for (var localEvent in localEvents) {
+        if (!firebaseEvents.docs.any((doc) => doc.id == localEvent.id.toString())) {
+          await _firestore.collection('events').doc(localEvent.id.toString()).set(localEvent.toMap());
+          print('Local event pushed to Firebase: ${localEvent.id}');
+        }
+      }
+
+      // Pull events from Firebase to local database
+      for (var doc in firebaseEvents.docs) {
+        final event = Event.fromMap(doc.data());
+        if (!localEvents.any((e) => e.id == event.id)) {
+          await dbHelper.insertEvent(event);
+        }
+      }
+
+      // === Sync Events for Friends ===
+      final firebaseFriends = await _firestore
+          .collection('friends')
+          .where('userId', isEqualTo: userId)
+          .get();
+      for (var friendDoc in firebaseFriends.docs) {
+        final friend = Friend.fromMap(friendDoc.data());
+
+        // Insert missing friends into the local database
+        final localFriends = await dbHelper.getFriends(userId);
+        if (!localFriends.any((f) => f.friendId == friend.friendId)) {
+          await dbHelper.addFriend(friend);
+        }
+
+        // Fetch friend's events from Firebase
+        final friendEvents = await _firestore
+            .collection('events')
+            .where('userId', isEqualTo: friend.friendId)
+            .get();
+        final localFriendEvents = await dbHelper.getEvents(friend.friendId);
+
+        // Sync friend's events
+        for (var eventDoc in friendEvents.docs) {
+          final friendEvent = Event.fromMap(eventDoc.data());
+          if (!localFriendEvents.any((e) => e.id == friendEvent.id)) {
+            await dbHelper.insertEvent(friendEvent);
+          }
+        }
+      }
+
+      // === Sync Gifts for All Events ===
+      final localAllEvents = await dbHelper.getAllEvents(); // Get all events (user + friends)
+      for (var localEvent in localAllEvents) {
+        final firebaseGifts = await _firestore
+            .collection('gifts')
+            .where('eventId', isEqualTo: localEvent.id)
+            .get();
+        final localGifts = await dbHelper.getGifts(localEvent.id!);
+
+        // Push local gifts to Firebase
+        for (var localGift in localGifts) {
+          if (!firebaseGifts.docs.any((doc) => doc.id == localGift.id.toString())) {
+            await _firestore.collection('gifts').doc(localGift.id.toString()).set(localGift.toMap());
+            print('Local gift pushed to Firebase: ${localGift.id}');
+          }
+        }
+
+        // Pull gifts from Firebase to local database
+        for (var doc in firebaseGifts.docs) {
+          final gift = Gift.fromMap(doc.data());
+          if (!localGifts.any((g) => g.id == gift.id)) {
+            await dbHelper.insertGift(gift);
+          }
+        }
+      }
+
+      print('Complete sync with Firebase completed successfully.');
+      syncStatusManager.updateStatus("Synced");
+    } catch (e) {
+      print('Error during sync: $e');
+      syncStatusManager.updateStatus("Offline");
+      rethrow;
     }
   }
+
+
+
 }
