@@ -22,7 +22,7 @@ class ProfileSection extends StatelessWidget {
             child: CircleAvatar(
               radius: 50,
               backgroundColor: Colors.tealAccent,
-              backgroundImage: AssetImage('assets/user_profile.png'),
+             // backgroundImage: AssetImage('assets/user_profile.png'),
               child: Icon(
                 Icons.person,
                 size: 50,

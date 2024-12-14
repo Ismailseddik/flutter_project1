@@ -30,6 +30,18 @@ class FirebaseHelper {
     }
     return null;
   }
+  Future<Map<String, dynamic>> getUserById(String userId) async {
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+      return userDoc.data() ?? {};
+    } catch (e) {
+      print('Error fetching user by ID: $e');
+      return {};
+    }
+  }
 
   Future<int?> getUserIdByEmail(String email) async {
     try {
@@ -77,14 +89,51 @@ class FirebaseHelper {
       return [];
     }
   }
-
-  Future<void> deleteEvent(int eventId) async {
+  /// Update an event in Firebase
+  Future<void> updateEvent(int eventId, Map<String, dynamic> updates) async {
     try {
-      await _firestore.collection('events').doc(eventId.toString()).delete();
+      final docRef = _firestore.collection('events').doc(eventId.toString());
+      await docRef.update(updates);
+      print('Event updated successfully in Firebase: $updates');
     } catch (e) {
-      print('Error deleting event: $e');
+      print('Error updating event in Firebase: $e');
+      rethrow;
     }
   }
+  /// Delete an event and its associated gifts in Firebase
+  Future<void> deleteEventWithCascading(int eventId) async {
+    try {
+      // Delete associated gifts
+      final giftsSnapshot = await _firestore
+          .collection('gifts')
+          .where('eventId', isEqualTo: eventId)
+          .get();
+
+      for (var doc in giftsSnapshot.docs) {
+        await doc.reference.delete();
+      }
+
+      // Delete the event itself
+      await _firestore.collection('events').doc(eventId.toString()).delete();
+      print('Event and associated gifts deleted successfully in Firebase.');
+    } catch (e) {
+      print('Error deleting event with cascading in Firebase: $e');
+      rethrow;
+    }
+  }
+  Future<Map<String, dynamic>> getEventById(String eventId) async {
+    try {
+      final eventDoc = await FirebaseFirestore.instance
+          .collection('events')
+          .doc(eventId)
+          .get();
+      return eventDoc.data() ?? {};
+    } catch (e) {
+      print('Error fetching event by ID: $e');
+      return {};
+    }
+  }
+
 
   // === GIFTS COLLECTION ===
   Future<void> createGift(Gift gift) async {

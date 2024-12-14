@@ -41,6 +41,7 @@ dependencies:
   # Firebase Authentication (if needed for user authentication)
   firebase_auth: ^4.16.0
   timezone: ^0.9.0
+  firebase_messaging: ^14.0.3
   #flutter_local_notifications: ^13.0.0
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

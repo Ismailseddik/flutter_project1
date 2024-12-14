@@ -15,9 +15,10 @@ import 'screens/profile_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  //NotificationService notificationService = NotificationService();
   // Sync local database with Firebase
-  final dbHelper = DatabaseHelper.instance;
-  final firebaseHelper = FirebaseHelper.instance;
+ // final dbHelper = DatabaseHelper.instance;
+  //final firebaseHelper = FirebaseHelper.instance;
 /*  try {
     await firebaseHelper.syncWithLocalDatabase(dbHelper);
     print('Initial sync with Firebase completed successfully.');

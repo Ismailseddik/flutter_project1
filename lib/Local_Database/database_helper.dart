@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../Firebase_Database/firebase_helper.dart';
+import '../SyncStatusManager.dart';
 import '../models/models.dart'; // Import the models for Users, Events, Gifts, Friends
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 class DatabaseHelper {
@@ -230,7 +231,81 @@ class DatabaseHelper {
       print('Error syncing after creating event: $e');
     }
   }
+  /// Update an event in the local SQLite database
+  Future<void> updateEvent(int eventId, Map<String, dynamic> updates) async {
+    final db = await instance.database;
+    // Trigger sync
+    syncStatusManager.updateStatus("Syncing...");
 
+    try {
+      await db.update(
+        'events',
+        updates,
+        where: 'id = ?',
+        whereArgs: [eventId],
+      );
+
+      // Sync the updated event with Firebase
+      final existingEvent = await getEventById(eventId);
+      if (existingEvent != null) {
+        await FirebaseHelper.instance.updateEvent(eventId, updates);
+      }
+
+      print('Event updated successfully in the local database.');
+      syncStatusManager.updateStatus("Synced");
+    } catch (e) {
+      syncStatusManager.updateStatus("Offline");
+      print('Error updating event in the local database: $e');
+      rethrow;
+    }
+  }
+  /// Delete an event and its associated gifts in the local SQLite database
+  Future<void> deleteEventWithCascading(int eventId) async {
+    final db = await instance.database;
+    // Trigger sync
+    syncStatusManager.updateStatus("Syncing...");
+    try {
+      // Delete associated gifts
+      await db.delete(
+        'gifts',
+        where: 'eventId = ?',
+        whereArgs: [eventId],
+      );
+
+      // Delete the event itself
+      await db.delete(
+        'events',
+        where: 'id = ?',
+        whereArgs: [eventId],
+      );
+
+      // Sync the deletion with Firebase
+      await FirebaseHelper.instance.deleteEventWithCascading(eventId);
+
+      print('Event and associated gifts deleted successfully in the local database.');
+      syncStatusManager.updateStatus("Synced");
+    } catch (e) {
+      syncStatusManager.updateStatus("Offline");
+      print('Error deleting event with cascading in the local database: $e');
+      rethrow;
+    }
+  }
+
+  /// Fetch a single event by its ID
+  Future<Event?> getEventById(int eventId) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'events',
+      where: 'id = ?',
+      whereArgs: [eventId],
+    );
+
+    if (result.isNotEmpty) {
+      return Event.fromMap(result.first);
+    }
+
+    return null;
+  }
 
 
   // Get events by user ID
