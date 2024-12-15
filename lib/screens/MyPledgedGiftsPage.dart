@@ -30,61 +30,86 @@ class _MyPledgedGiftsPageState extends State<MyPledgedGiftsPage> {
     try {
       // Fetch pledged gifts directly from Firebase
       final fetchedGifts = await firebase.getGiftsWithCriteria({
-        'friendId': widget.userId, // Match the logged-in user ID
-        'status': 'Pledged', // Only fetch pledged gifts
+        'friendId': widget.userId,
+        'status': 'Pledged',
       });
 
-      // Log debugging information
-      fetchedGifts.forEach((gift) {
-        print(
-            'Debug: Gift ID: ${gift.id}, Event ID: ${gift.eventId}, Name: ${gift.name}, Friend ID: ${gift.friendId}, Status: ${gift.status}');
-      });
+      print('Debug: Total gifts fetched: ${fetchedGifts.length}');
 
-      // Enrich gifts with event and user details
+      // Cache to avoid redundant Firebase calls
+      Map<int, User?> userCache = {};
+
       List<Map<String, dynamic>> tempEnrichedGifts = [];
+
       for (var gift in fetchedGifts) {
-        // Try to fetch the associated event using eventId
+        print('Debug: Processing Gift ID: ${gift.id}, Event ID: ${gift.eventId}, Name: ${gift.name}');
+
+        // Fetch the associated event
         Event? event;
         try {
           event = await db.getEventById(gift.eventId);
           if (event == null) {
-            print('Event not found locally. Fetching from Firebase...');
-            event = (await firebase.getEventById(gift.eventId as String)) as Event?;
-            if (event != null) {
-              await db.insertEvent(event); // Sync locally for future use
+            print('Debug: Event not found locally. Fetching from Firebase...');
+            final eventData = await firebase.getEventById(gift.eventId.toString());
+            if (eventData.isNotEmpty) {
+              event = Event.fromMap(eventData);
+              await db.insertEvent(event); // Sync event locally
+              print('Debug: Event synced locally: ${event.name}');
             }
           }
-                } catch (e) {
+        } catch (e) {
           print('Error fetching event for gift ID ${gift.id}: $e');
         }
 
-        // Try to fetch the user (creator of the event) using event's userId
+        // Fetch the user
         User? user;
         try {
-          if (event != null) {
-            user = await db.getUser(event.userId!);
+          int? userId = event?.userId ?? gift.friendId;
+          if (userId == null) {
+            print('Debug: User ID is null. Skipping gift processing.');
+            continue;
+          }
+
+          if (userCache.containsKey(userId)) {
+            user = userCache[userId];
+            print('Debug: User fetched from cache for User ID: $userId');
+          } else {
+            user = await firebase.getUserById(userId.toString());
+            if (user != null) {
+              await db.insertUser(user); // Sync user locally
+              print('Debug: User synced locally: ${user.name}');
+              userCache[userId] = user;
+            } else {
+              print('Debug: User not found in Firebase.');
+            }
           }
         } catch (e) {
-          print('Error fetching user for event ID ${event?.id}: $e');
+          print('Error fetching user for Gift ID ${gift.id}: $e');
         }
 
-        // Add enriched data for this gift with fallbacks
+        // Add enriched data for this gift
         tempEnrichedGifts.add({
-          'gift': gift, // The original gift object
-          'friendName': user?.name ?? 'Unknown User', // Fallback for missing user
-          'eventDate': event?.date ?? 'No date', // Fallback for missing event
+          'gift': gift,
+          'friendName': user?.name ?? 'Unknown User',
+          'eventDate': event?.date ?? 'No date',
         });
       }
 
-      // Update the state with enriched gifts
       setState(() {
         enrichedGifts = tempEnrichedGifts;
       });
-
+      print('Debug: Finished loading pledged gifts. Total: ${enrichedGifts.length}');
     } catch (e) {
-      print('Error fetching pledged gifts: $e');
+      print('Error loading pledged gifts: $e');
     }
   }
+
+
+
+
+
+
+
 
   @override
   Widget build(BuildContext context) {

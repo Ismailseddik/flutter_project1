@@ -30,18 +30,29 @@ class FirebaseHelper {
     }
     return null;
   }
-  Future<Map<String, dynamic>> getUserById(String userId) async {
+  Future<User?> getUserById(String userId) async {
     try {
+      print('Debug: Fetching user from Firebase for User ID: $userId'); // Log the userId being queried
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
           .get();
-      return userDoc.data() ?? {};
+
+      if (userDoc.exists) {
+        print('Debug: User document found: ${userDoc.data()}');
+        return User.fromMap(userDoc.data()!);
+      } else {
+        print('Error: User document does not exist for User ID: $userId');
+      }
     } catch (e) {
       print('Error fetching user by ID: $e');
-      return {};
     }
+    return null; // Return null if user is not found
   }
+
+
+
+
 
   Future<int?> getUserIdByEmail(String email) async {
     try {
