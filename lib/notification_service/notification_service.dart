@@ -1,5 +1,8 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class NotificationService {
   // Singleton instance
@@ -18,6 +21,7 @@ class NotificationService {
   // Getter to retrieve notifications
   List<Map<String, String>> get notifications => _notifications;
 
+  /// Initialization: Request permissions and handle foreground/background notifications.
   Future<void> init(BuildContext context) async {
     // Prevent re-initialization
     if (_isInitialized) {
@@ -25,7 +29,7 @@ class NotificationService {
       return;
     }
 
-    // Request permissions for notifications (iOS-specific)
+    // Request permissions for notifications
     NotificationSettings settings = await _firebaseMessaging.requestPermission(
       alert: true,
       badge: true,
@@ -38,17 +42,9 @@ class NotificationService {
       print('User declined or has not granted notification permissions');
     }
 
-    // Get and log the FCM token
-    final String? fcmToken = await _firebaseMessaging.getToken();
-    if (fcmToken != null) {
-      print('FCM Token: $fcmToken');
-      // Optionally save the token to your backend or Firestore
-    }
-    FirebaseMessaging.instance.getToken().then((token) {
-      print("FCM Token: $token");
-    }).catchError((e) {
-      print("Error fetching FCM Token: $e");
-    });
+    // Get and store the FCM token in Firestore
+    await _saveTokenToFirestore();
+
     // Handle notifications when app is in the foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('Received a notification in the foreground: ${message.notification?.title}');
@@ -59,7 +55,7 @@ class NotificationService {
         body: message.notification?.body ?? "No Body",
       );
 
-      // Optionally show a dialog or snackbar
+      // Optionally show a dialog
       _showNotificationDialog(context, message.notification?.title, message.notification?.body);
     });
 
@@ -72,22 +68,79 @@ class NotificationService {
     // Handle notifications when app is completely terminated
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Mark as initialized
     _isInitialized = true;
     print('NotificationService initialized successfully.');
   }
 
-  // Background message handler (must be a top-level function)
+  /// Save the FCM token to Firestore (new addition)
+  Future<void> _saveTokenToFirestore() async {
+    try {
+      final String? fcmToken = await _firebaseMessaging.getToken();
+      if (fcmToken != null) {
+        final String userId = "REPLACE_WITH_LOGGED_IN_USER_ID"; // Use actual user ID from auth
+        await FirebaseFirestore.instance.collection('notification_tokens').doc(userId).set({
+          'userId': userId,
+          'fcmToken': fcmToken,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        print('FCM Token saved to Firestore: $fcmToken');
+      }
+    } catch (e) {
+      print('Error saving FCM token: $e');
+    }
+  }
+
+  /// Send a notification to a specific user (new addition)
+  Future<void> sendNotificationToUser({
+    required String recipientToken,
+    required String title,
+    required String body,
+  }) async {
+    try {
+      const String serverKey = "YOUR_FIREBASE_SERVER_KEY"; // Replace with your actual server key
+      const String fcmUrl = "https://fcm.googleapis.com/fcm/send";
+
+      final Map<String, dynamic> payload = {
+        'to': recipientToken,
+        'notification': {
+          'title': title,
+          'body': body,
+        },
+        'data': {
+          'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        },
+      };
+
+      final response = await http.post(
+        Uri.parse(fcmUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'key=$serverKey',
+        },
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200) {
+        print('Notification sent successfully to token: $recipientToken');
+      } else {
+        print('Error sending notification: ${response.body}');
+      }
+    } catch (e) {
+      print('Error in sendNotificationToUser: $e');
+    }
+  }
+
+  /// Background message handler (must be a top-level function)
   static Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     print('Handling a background notification: ${message.notification?.title}');
   }
 
-  // Helper method to add a notification to the list
+  /// Add a notification to the local list
   void addNotification({required String title, required String body}) {
     _notifications.add({'title': title, 'body': body});
   }
 
-  // Helper method to show notification dialog
+  /// Show a dialog for the notification
   void _showNotificationDialog(BuildContext context, String? title, String? body) {
     if (title == null && body == null) return;
 
@@ -108,13 +161,13 @@ class NotificationService {
     );
   }
 
-  // Handle notification clicks (navigate to specific screens, etc.)
+  /// Handle notification clicks (navigate to a route)
   void _handleNotificationClick(BuildContext context, RemoteMessage message) {
     final Map<String, dynamic>? data = message.data;
     if (data != null) {
-      String? route = data['route']; // Extract a route from the notification payload
+      String? route = data['route']; // Extract route from payload
       if (route != null) {
-        Navigator.pushNamed(context, route); // Navigate to the route
+        Navigator.pushNamed(context, route);
       }
     }
   }
