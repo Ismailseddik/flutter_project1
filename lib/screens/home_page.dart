@@ -15,7 +15,7 @@ import 'package:path_provider/path_provider.dart';
 import 'MyPledgedGiftsPage.dart';
 import 'event_list_page.dart';
 import '../notification_service/notification_service.dart'; // Import NotificationService
-
+import '../notification_service/notification_handler.dart';
 class HomePage extends StatefulWidget {
   final int userId; // Pass the logged-in user's ID
 
@@ -34,7 +34,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int eventsCount = 0; // Number of events created
   int giftsPledgedCount = 0; // Number of gifts pledged
   int friendsCount = 0; // Number of friends added
-
+  final NotificationHandler _notificationHandler = NotificationHandler();
   @override
   void initState() {
     super.initState();
@@ -47,10 +47,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _initializeNotifications() async {
     try {
-      await NotificationService().init(context); // Initialize NotificationService
-      print('NotificationService initialized successfully.');
+      print('[HomePage] Initializing Notifications...');
+      await NotificationService().init(context);
+      await _uploadUserToken(); // Ensure token is uploaded
+      print('[HomePage] Notifications initialized successfully.');
     } catch (e) {
-      print('Error initializing NotificationService: $e');
+      print('[HomePage] Error initializing Notifications: $e');
+    }
+  }
+  Future<void> _uploadUserToken() async {
+    try {
+      final String? fcmToken = await NotificationService().getFirebaseMessagingToken();
+      if (fcmToken != null) {
+        await _notificationHandler.uploadUserToken(
+          userId: widget.userId.toString(),
+          fcmToken: fcmToken,
+        );
+        print('[HomePage] User FCM token uploaded successfully.');
+      } else {
+        print('[HomePage] FCM token is null.');
+      }
+    } catch (e) {
+      print('[HomePage] Error uploading FCM token: $e');
     }
   }
 
@@ -82,7 +100,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Ensure data is dynamically updated when the page comes into focus
+    _initializeNotifications();
     _loadUserInfo();
     _loadFriends();
     rebuildAnalytics();
@@ -269,31 +287,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
+
 // === NEW DROPDOWN METHOD FOR NOTIFICATIONS ===
   void _showNotificationsDropdown() {
-    final notifications = NotificationService().notifications; // Fetch notifications from service
-
+    final notifications = NotificationService().notifications;
     showModalBottomSheet(
       context: context,
-      builder: (BuildContext context) {
-        return Container(
-          height: 300, // Height for the dropdown
-          padding: const EdgeInsets.all(16.0),
-          child: notifications.isEmpty
-              ? Center(child: Text("No Notifications"))
-              : ListView.builder(
-            itemCount: notifications.length,
-            itemBuilder: (context, index) {
-              final notification = notifications[index];
-              return ListTile(
-                leading: Icon(Icons.notifications, color: Colors.teal),
-                title: Text(notification['title'] ?? 'No Title'),
-                subtitle: Text(notification['body'] ?? 'No Body'),
-              );
-            },
-          ),
-        );
-      },
+      builder: (context) => Container(
+        height: 300,
+        padding: EdgeInsets.all(16),
+        child: notifications.isEmpty
+            ? Center(child: Text("No Notifications"))
+            : ListView.builder(
+          itemCount: notifications.length,
+          itemBuilder: (context, index) {
+            final notification = notifications[index];
+            return ListTile(
+              leading: Icon(Icons.notifications, color: Colors.teal),
+              title: Text(notification['title'] ?? 'No Title'),
+              subtitle: Text(notification['body'] ?? 'No Body'),
+            );
+          },
+        ),
+      ),
     );
   }
 // === END OF DROPDOWN METHOD ===
