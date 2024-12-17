@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
 import '../styles.dart';
@@ -8,9 +9,12 @@ import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
 import 'FriendEventListPage.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-
+import 'dart:convert'; // For base64 encoding/decoding
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'MyPledgedGiftsPage.dart';
 import 'event_list_page.dart';
+import '../notification_service/notification_service.dart'; // Import NotificationService
 
 class HomePage extends StatefulWidget {
   final int userId; // Pass the logged-in user's ID
@@ -21,11 +25,12 @@ class HomePage extends StatefulWidget {
   _HomePageState createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  bool isRefreshing = false; // Tracks whether profile needs refreshing
   String userName = ''; // To hold the user's name dynamically
   List<Friend> friends = []; // List to hold friends
   final TextEditingController emailController = TextEditingController();
-
+  String profileImagePath = '';
   int eventsCount = 0; // Number of events created
   int giftsPledgedCount = 0; // Number of gifts pledged
   int friendsCount = 0; // Number of friends added
@@ -34,14 +39,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _initializeNotifications(); // Initialize NotificationService
     _loadUserInfo(); // Fetch user's name
     _loadFriends(); // Fetch friends
     _loadAnalytics(); // Load analytics data
   }
+
+  Future<void> _initializeNotifications() async {
+    try {
+      await NotificationService().init(context); // Initialize NotificationService
+      print('NotificationService initialized successfully.');
+    } catch (e) {
+      print('Error initializing NotificationService: $e');
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this); // Stop observing lifecycle
     super.dispose();
+  }
+  // Force a full refresh of the HomePage
+  void _refreshPage() {
+    setState(() {
+      isRefreshing = true;
+    });
+
+    Future.delayed(Duration(milliseconds: 100), () {
+      setState(() {
+        isRefreshing = false;
+      });
+    });
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -50,6 +78,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
       rebuildAnalytics();
     }
   }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -68,6 +97,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
       setState(() {
         userName = user.name; // Assign user's name dynamically
       });
+      await _refreshProfileSection();
     } catch (e) {
       print('Error fetching user: $e');
     }
@@ -87,6 +117,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
       print('Error fetching friends: $e');
     }
   }
+
   Future<Map<String, int>> _fetchAnalytics() async {
     final db = DatabaseHelper.instance;
 
@@ -113,13 +144,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
       };
     }
   }
+
   void rebuildAnalytics() {
     _loadAnalytics();
   }
+
   Future<void> _loadAnalytics() async {
     final db = DatabaseHelper.instance;
     final firebase = FirebaseHelper.instance;
-
+    _refreshProfileSection();
     try {
       print('Debug: Starting analytics refresh...');
 
@@ -147,9 +180,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
       print('Error loading analytics data: $e');
     }
   }
+  // Return local image path
+  Future<String> _getLocalImagePath() async {
+    final appDir = await getApplicationDocumentsDirectory();
+    return '${appDir.path}/profile_${widget.userId}.jpg';
+  }
+  // Refresh profile image (local + Firebase fallback)
+  Future<void> _refreshProfileSection() async {
+    final localImagePath = await _getLocalImagePath();
 
+    if (await File(localImagePath).exists()) {
+      setState(() {
+        profileImagePath = localImagePath;
+      });
+      print('Debug: Profile image loaded from local storage.');
+    } else {
+      print('Debug: No local profile image, fetching from Firebase...');
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('profile_pictures')
+            .where('userId', isEqualTo: widget.userId)
+            .orderBy('imageId', descending: true)
+            .limit(1)
+            .get();
 
+        if (snapshot.docs.isNotEmpty) {
+          final base64Image = snapshot.docs.first['base64Image'];
+          final decodedBytes = base64Decode(base64Image);
+          final tempDir = await getTemporaryDirectory();
+          final tempImagePath = '${tempDir.path}/profile_${widget.userId}_temp.jpg';
+          await File(tempImagePath).writeAsBytes(decodedBytes);
 
+          setState(() {
+            profileImagePath = tempImagePath;
+          });
+          print('Debug: Profile image refreshed from Firebase.');
+        }
+      } catch (e) {
+        print('Error refreshing profile image: $e');
+      }
+    }
+  }
 
   Future<void> _addFriend() async {
     final email = emailController.text.trim();
@@ -198,6 +269,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
+// === NEW DROPDOWN METHOD FOR NOTIFICATIONS ===
+  void _showNotificationsDropdown() {
+    final notifications = NotificationService().notifications; // Fetch notifications from service
+
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return Container(
+          height: 300, // Height for the dropdown
+          padding: const EdgeInsets.all(16.0),
+          child: notifications.isEmpty
+              ? Center(child: Text("No Notifications"))
+              : ListView.builder(
+            itemCount: notifications.length,
+            itemBuilder: (context, index) {
+              final notification = notifications[index];
+              return ListTile(
+                leading: Icon(Icons.notifications, color: Colors.teal),
+                title: Text(notification['title'] ?? 'No Title'),
+                subtitle: Text(notification['body'] ?? 'No Body'),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+// === END OF DROPDOWN METHOD ===
 
   @override
   Widget build(BuildContext context) {
@@ -230,10 +329,32 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
               children: [
                 ProfileSection(
                   userName: userName.isNotEmpty ? userName : 'Loading...',
-                  onProfileIconTapped: () {
-                    Navigator.pushNamed(context, '/profile', arguments: widget.userId);
+                  userId: widget.userId,
+                  profileImagePath: profileImagePath, // <-- Pass the dynamic path
+                  onProfileIconTapped: () async {
+                    await Navigator.pushNamed(context, '/profile', arguments: widget.userId);
+                    rebuildAnalytics(); // Ensure the image and analytics are refreshed
                   },
                 ),
+                // === NEW NOTIFICATION BUTTON BELOW PROFILE SECTION ===
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal, // Background color
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20), // Rounded button
+                      ),
+                    ),
+                    onPressed: _showNotificationsDropdown, // Show notifications dropdown
+                    icon: Icon(Icons.notifications, color: Colors.white),
+                    label: Text(
+                      'View Notifications',
+                      style: TextStyle(fontSize: 16, color: Colors.white),
+                    ),
+                  ),
+                ),
+// === END OF NOTIFICATION BUTTON ===
                 // Analytics Section with Same Height Cards
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16.0),
@@ -376,7 +497,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
   }
 
   // Helper method to build analytics cards
-  Widget _buildAnalyticsCard(String title, int count, IconData icon, {VoidCallback? onTap}) {
+  Widget _buildAnalyticsCard(String title, int count, IconData icon,
+      {VoidCallback? onTap}) {
     return Flexible(
       child: GestureDetector(
         onTap: onTap, // Navigation functionality for card
@@ -416,6 +538,4 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver{
       ),
     );
   }
-
-
 }

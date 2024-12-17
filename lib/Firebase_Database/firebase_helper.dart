@@ -30,6 +30,49 @@ class FirebaseHelper {
     }
     return null;
   }
+  Future<User?> getUserById(String userId) async {
+    try {
+      print('Debug: Fetching user from Firebase for User ID: $userId'); // Log the userId being queried
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+
+      if (userDoc.exists) {
+        print('Debug: User document found: ${userDoc.data()}');
+        return User.fromMap(userDoc.data()!);
+      } else {
+        print('Error: User document does not exist for User ID: $userId');
+      }
+    } catch (e) {
+      print('Error fetching user by ID: $e');
+    }
+    return null; // Return null if user is not found
+  }
+  Future<String?> getUserNameById(String userId) async {
+    try {
+      print('Debug: Fetching user name from Firebase for User ID: $userId');
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+
+      if (userDoc.exists) {
+        final userName = userDoc.data()?['name'];
+        print('Debug: User name found: $userName');
+        return userName;
+      } else {
+        print('Error: User document does not exist for User ID: $userId');
+      }
+    } catch (e) {
+      print('Error fetching user name by ID: $e');
+    }
+    return null; // Return null if name is not found
+  }
+
+
+
+
 
   Future<int?> getUserIdByEmail(String email) async {
     try {
@@ -77,14 +120,51 @@ class FirebaseHelper {
       return [];
     }
   }
-
-  Future<void> deleteEvent(int eventId) async {
+  /// Update an event in Firebase
+  Future<void> updateEvent(int eventId, Map<String, dynamic> updates) async {
     try {
-      await _firestore.collection('events').doc(eventId.toString()).delete();
+      final docRef = _firestore.collection('events').doc(eventId.toString());
+      await docRef.update(updates);
+      print('Event updated successfully in Firebase: $updates');
     } catch (e) {
-      print('Error deleting event: $e');
+      print('Error updating event in Firebase: $e');
+      rethrow;
     }
   }
+  /// Delete an event and its associated gifts in Firebase
+  Future<void> deleteEventWithCascading(int eventId) async {
+    try {
+      // Delete associated gifts
+      final giftsSnapshot = await _firestore
+          .collection('gifts')
+          .where('eventId', isEqualTo: eventId)
+          .get();
+
+      for (var doc in giftsSnapshot.docs) {
+        await doc.reference.delete();
+      }
+
+      // Delete the event itself
+      await _firestore.collection('events').doc(eventId.toString()).delete();
+      print('Event and associated gifts deleted successfully in Firebase.');
+    } catch (e) {
+      print('Error deleting event with cascading in Firebase: $e');
+      rethrow;
+    }
+  }
+  Future<Map<String, dynamic>> getEventById(String eventId) async {
+    try {
+      final eventDoc = await FirebaseFirestore.instance
+          .collection('events')
+          .doc(eventId)
+          .get();
+      return eventDoc.data() ?? {};
+    } catch (e) {
+      print('Error fetching event by ID: $e');
+      return {};
+    }
+  }
+
 
   // === GIFTS COLLECTION ===
   Future<void> createGift(Gift gift) async {
