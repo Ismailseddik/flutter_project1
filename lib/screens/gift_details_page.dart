@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // For Firestore
 import '../SyncStatusManager.dart';
+import '../notification_service/notification_handler.dart';
 import '../styles.dart';
 import '../Local_Database/database_helper.dart';
 import '../Firebase_Database/firebase_helper.dart';
@@ -201,16 +202,35 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
 
     if (pledged == true) {
       try {
+        // Update gift status in Firebase
         await firebase.updateGift(widget.giftId, {
           'status': 'Pledged',
           'friendId': currentUserId,
         });
+
+        // Fetch the current user's name
+        String userName = 'Unknown User';
+        try {
+          userName = await firebase.getUserNameById(currentUserId.toString()) ?? 'Unknown User';
+          print('Debug: Username fetched successfully - $userName');
+        } catch (e) {
+          print('Error fetching username: $e');
+        }
+
+        // Notify other users (e.g., the event creator)
+        await NotificationHandler().sendGiftPledgeNotification(
+          giftId: widget.giftId,
+          pledgerName: userName,
+          giftName: widget.giftName,
+        );
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gift pledged successfully!')),
+          SnackBar(content: Text('Gift pledged successfully! Notification sent.')),
         );
       } catch (e) {
         print('Error pledging gift on Firebase: $e');
         try {
+          // Update gift status locally
           await db.updateGift(widget.giftId, {
             'status': 'Pledged',
             'friendId': currentUserId,
@@ -227,6 +247,7 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
       Navigator.pop(context, true);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

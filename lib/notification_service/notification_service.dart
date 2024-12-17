@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+import '../Firebase_Database/firebase_helper.dart';
+import '../Local_Database/database_helper.dart';
 class NotificationService {
   // Singleton instance
   static final NotificationService _instance = NotificationService._internal();
@@ -76,32 +79,32 @@ class NotificationService {
   /// Save the FCM token to Firestore
   Future<void> _saveTokenToFirestore() async {
     try {
-      // Fetch the FCM token
       final String? fcmToken = await _firebaseMessaging.getToken();
+      if (fcmToken != null) {
+        // Get current user ID from FirebaseHelper
+        final db = DatabaseHelper.instance;
+        final firebase = FirebaseHelper.instance;
+        final int? currentUserId = await db.getCurrentUserId(); // Fetch app-specific user ID
 
-      // Fetch the current logged-in user's ID
-      final User? user = FirebaseAuth.instance.currentUser;
-
-      if (fcmToken != null && user != null) {
-        // Save the token to Firestore under the user's UID
-        await FirebaseFirestore.instance
-            .collection('notification_tokens')
-            .doc(user.uid) // Document ID is the user's ID
-            .set({
-          'userId': user.uid,                // User ID field
-          'fcmToken': fcmToken,              // FCM token field
-          'createdAt': FieldValue.serverTimestamp(), // Timestamp field
-        }, SetOptions(merge: true)); // Merge to avoid overwriting existing fields
-
-        print('Debug: FCM Token saved successfully for user: ${user.uid}');
-        print('Debug: Token value: $fcmToken');
+        if (currentUserId != null) {
+          // Save token using user ID
+          await FirebaseFirestore.instance.collection('user_tokens').doc(currentUserId.toString()).set({
+            'userId': currentUserId,
+            'fcmToken': fcmToken,
+            'createdAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+          print('FCM token saved for user ID: $currentUserId');
+        } else {
+          print('Error: Failed to fetch current user ID for saving FCM token.');
+        }
       } else {
-        print('Error: User is not logged in or FCM token is null.');
+        print('Error: FCM token is null.');
       }
     } catch (e) {
       print('Error saving FCM token to Firestore: $e');
     }
   }
+
   /// Send a notification to a specific user (new addition)
   Future<void> sendNotificationToUser({
     required String recipientToken,

@@ -104,6 +104,68 @@ class NotificationHandler {
       print('Error sending event update notification: $e');
     }
   }
+  /// Send notification when a gift is pledged, including the user's name
+  /// Send notification when a gift is pledged
+  Future<void> sendGiftPledgeNotification({
+    required int giftId,
+    required String? pledgerName,
+    required String giftName,
+  }) async {
+    try {
+      // Step 1: Fetch the gift details to get the eventId
+      final giftDoc = await _firestore.collection('gifts').doc(giftId.toString()).get();
+      if (!giftDoc.exists) {
+        print('Error: Gift not found with ID: $giftId');
+        return;
+      }
+      final eventId = giftDoc.data()?['eventId'];
+      if (eventId == null) {
+        print('Error: eventId not found for gift ID: $giftId');
+        return;
+      }
+
+      // Step 2: Fetch the event to get the userId (event owner)
+      final eventDoc = await _firestore.collection('events').doc(eventId.toString()).get();
+      if (!eventDoc.exists) {
+        print('Error: Event not found with ID: $eventId');
+        return;
+      }
+      final ownerId = eventDoc.data()?['userId'];
+      if (ownerId == null) {
+        print('Error: Event owner userId not found for event ID: $eventId');
+        return;
+      }
+
+      // Step 3: Fetch the FCM token of the event owner
+      final tokenDoc = await _firestore.collection('user_tokens').doc(ownerId.toString()).get();
+      final recipientToken = tokenDoc.data()?['fcmToken'];
+      if (recipientToken == null) {
+        print('Error: FCM token not found for user ID: $ownerId');
+        return;
+      }
+
+      // Step 4: Send the notification
+      final title = "Gift Pledged: $giftName";
+      final body = "$pledgerName has pledged the gift '$giftName'.";
+      await _notificationService.sendNotificationToUser(
+        recipientToken: recipientToken,
+        title: title,
+        body: body,
+      );
+
+      // Step 5: Save the notification to Firestore
+      await _createNotificationRecord(
+        recipientId: ownerId.toString(),
+        title: title,
+        body: body,
+      );
+
+      print('Notification sent successfully for pledged gift.');
+    } catch (e) {
+      print('Error sending gift pledge notification: $e');
+    }
+  }
+
 
   /// Save notifications in a 'notifications' collection
   Future<void> _createNotificationRecord({
