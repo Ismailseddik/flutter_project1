@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:firebase_auth/firebase_auth.dart';
 class NotificationService {
   // Singleton instance
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
+  final user = FirebaseAuth.instance.currentUser;
 
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
 
@@ -72,24 +73,35 @@ class NotificationService {
     print('NotificationService initialized successfully.');
   }
 
-  /// Save the FCM token to Firestore (new addition)
+  /// Save the FCM token to Firestore
   Future<void> _saveTokenToFirestore() async {
     try {
+      // Fetch the FCM token
       final String? fcmToken = await _firebaseMessaging.getToken();
-      if (fcmToken != null) {
-        final String userId = "REPLACE_WITH_LOGGED_IN_USER_ID"; // Use actual user ID from auth
-        await FirebaseFirestore.instance.collection('notification_tokens').doc(userId).set({
-          'userId': userId,
-          'fcmToken': fcmToken,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        print('FCM Token saved to Firestore: $fcmToken');
+
+      // Fetch the current logged-in user's ID
+      final User? user = FirebaseAuth.instance.currentUser;
+
+      if (fcmToken != null && user != null) {
+        // Save the token to Firestore under the user's UID
+        await FirebaseFirestore.instance
+            .collection('notification_tokens')
+            .doc(user.uid) // Document ID is the user's ID
+            .set({
+          'userId': user.uid,                // User ID field
+          'fcmToken': fcmToken,              // FCM token field
+          'createdAt': FieldValue.serverTimestamp(), // Timestamp field
+        }, SetOptions(merge: true)); // Merge to avoid overwriting existing fields
+
+        print('Debug: FCM Token saved successfully for user: ${user.uid}');
+        print('Debug: Token value: $fcmToken');
+      } else {
+        print('Error: User is not logged in or FCM token is null.');
       }
     } catch (e) {
-      print('Error saving FCM token: $e');
+      print('Error saving FCM token to Firestore: $e');
     }
   }
-
   /// Send a notification to a specific user (new addition)
   Future<void> sendNotificationToUser({
     required String recipientToken,
