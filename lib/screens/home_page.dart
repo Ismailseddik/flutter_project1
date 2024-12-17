@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
 import '../styles.dart';
@@ -8,7 +9,9 @@ import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
 import 'FriendEventListPage.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-
+import 'dart:convert'; // For base64 encoding/decoding
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'MyPledgedGiftsPage.dart';
 import 'event_list_page.dart';
 import '../notification_service/notification_service.dart'; // Import NotificationService
@@ -23,10 +26,11 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  bool isRefreshing = false; // Tracks whether profile needs refreshing
   String userName = ''; // To hold the user's name dynamically
   List<Friend> friends = []; // List to hold friends
   final TextEditingController emailController = TextEditingController();
-
+  String profileImagePath = '';
   int eventsCount = 0; // Number of events created
   int giftsPledgedCount = 0; // Number of gifts pledged
   int friendsCount = 0; // Number of friends added
@@ -55,7 +59,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this); // Stop observing lifecycle
     super.dispose();
   }
+  // Force a full refresh of the HomePage
+  void _refreshPage() {
+    setState(() {
+      isRefreshing = true;
+    });
 
+    Future.delayed(Duration(milliseconds: 100), () {
+      setState(() {
+        isRefreshing = false;
+      });
+    });
+  }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -82,6 +97,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       setState(() {
         userName = user.name; // Assign user's name dynamically
       });
+      await _refreshProfileSection();
     } catch (e) {
       print('Error fetching user: $e');
     }
@@ -136,7 +152,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadAnalytics() async {
     final db = DatabaseHelper.instance;
     final firebase = FirebaseHelper.instance;
-
+    _refreshProfileSection();
     try {
       print('Debug: Starting analytics refresh...');
 
@@ -162,6 +178,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       print('Debug: Friends Count: $friendsCount');
     } catch (e) {
       print('Error loading analytics data: $e');
+    }
+  }
+  // Return local image path
+  Future<String> _getLocalImagePath() async {
+    final appDir = await getApplicationDocumentsDirectory();
+    return '${appDir.path}/profile_${widget.userId}.jpg';
+  }
+  // Refresh profile image (local + Firebase fallback)
+  Future<void> _refreshProfileSection() async {
+    final localImagePath = await _getLocalImagePath();
+
+    if (await File(localImagePath).exists()) {
+      setState(() {
+        profileImagePath = localImagePath;
+      });
+      print('Debug: Profile image loaded from local storage.');
+    } else {
+      print('Debug: No local profile image, fetching from Firebase...');
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('profile_pictures')
+            .where('userId', isEqualTo: widget.userId)
+            .orderBy('imageId', descending: true)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final base64Image = snapshot.docs.first['base64Image'];
+          final decodedBytes = base64Decode(base64Image);
+          final tempDir = await getTemporaryDirectory();
+          final tempImagePath = '${tempDir.path}/profile_${widget.userId}_temp.jpg';
+          await File(tempImagePath).writeAsBytes(decodedBytes);
+
+          setState(() {
+            profileImagePath = tempImagePath;
+          });
+          print('Debug: Profile image refreshed from Firebase.');
+        }
+      } catch (e) {
+        print('Error refreshing profile image: $e');
+      }
     }
   }
 
@@ -272,8 +329,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               children: [
                 ProfileSection(
                   userName: userName.isNotEmpty ? userName : 'Loading...',
-                  onProfileIconTapped: () {
-                    Navigator.pushNamed(context, '/profile', arguments: widget.userId);
+                  userId: widget.userId,
+                  profileImagePath: profileImagePath, // <-- Pass the dynamic path
+                  onProfileIconTapped: () async {
+                    await Navigator.pushNamed(context, '/profile', arguments: widget.userId);
+                    rebuildAnalytics(); // Ensure the image and analytics are refreshed
                   },
                 ),
                 // === NEW NOTIFICATION BUTTON BELOW PROFILE SECTION ===

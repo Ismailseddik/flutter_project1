@@ -44,7 +44,11 @@ class NotificationService {
       print('FCM Token: $fcmToken');
       // Optionally save the token to your backend or Firestore
     }
-
+    FirebaseMessaging.instance.getToken().then((token) {
+      print("FCM Token: $token");
+    }).catchError((e) {
+      print("Error fetching FCM Token: $e");
+    });
     // Handle notifications when app is in the foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('Received a notification in the foreground: ${message.notification?.title}');

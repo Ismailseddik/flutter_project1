@@ -49,6 +49,26 @@ class FirebaseHelper {
     }
     return null; // Return null if user is not found
   }
+  Future<String?> getUserNameById(String userId) async {
+    try {
+      print('Debug: Fetching user name from Firebase for User ID: $userId');
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+
+      if (userDoc.exists) {
+        final userName = userDoc.data()?['name'];
+        print('Debug: User name found: $userName');
+        return userName;
+      } else {
+        print('Error: User document does not exist for User ID: $userId');
+      }
+    } catch (e) {
+      print('Error fetching user name by ID: $e');
+    }
+    return null; // Return null if name is not found
+  }
 
 
 

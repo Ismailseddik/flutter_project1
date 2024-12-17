@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
 import '../Local_Database/database_helper.dart';
+import '../SyncStatusManager.dart';
 import '../models/models.dart';
 import '../widgets/AppBarWithSyncStatus.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
@@ -26,7 +27,7 @@ class _MyPledgedGiftsPageState extends State<MyPledgedGiftsPage> {
   Future<void> _loadPledgedGifts() async {
     final db = DatabaseHelper.instance;
     final firebase = FirebaseHelper.instance;
-
+    syncStatusManager.updateStatus("Syncing...");
     try {
       // Fetch pledged gifts directly from Firebase
       final fetchedGifts = await firebase.getGiftsWithCriteria({
@@ -37,7 +38,7 @@ class _MyPledgedGiftsPageState extends State<MyPledgedGiftsPage> {
       print('Debug: Total gifts fetched: ${fetchedGifts.length}');
 
       // Cache to avoid redundant Firebase calls
-      Map<int, User?> userCache = {};
+      Map<int, String?> userNameCache = {};
 
       List<Map<String, dynamic>> tempEnrichedGifts = [];
 
@@ -61,8 +62,8 @@ class _MyPledgedGiftsPageState extends State<MyPledgedGiftsPage> {
           print('Error fetching event for gift ID ${gift.id}: $e');
         }
 
-        // Fetch the user
-        User? user;
+        // Fetch the user's name
+        String? userName;
         try {
           int? userId = event?.userId ?? gift.friendId;
           if (userId == null) {
@@ -70,27 +71,26 @@ class _MyPledgedGiftsPageState extends State<MyPledgedGiftsPage> {
             continue;
           }
 
-          if (userCache.containsKey(userId)) {
-            user = userCache[userId];
-            print('Debug: User fetched from cache for User ID: $userId');
+          if (userNameCache.containsKey(userId)) {
+            userName = userNameCache[userId];
+            print('Debug: User name fetched from cache for User ID: $userId');
           } else {
-            user = await firebase.getUserById(userId.toString());
-            if (user != null) {
-              await db.insertUser(user); // Sync user locally
-              print('Debug: User synced locally: ${user.name}');
-              userCache[userId] = user;
+            userName = await firebase.getUserNameById(userId.toString());
+            if (userName != null) {
+              print('Debug: User name fetched from Firebase: $userName');
+              userNameCache[userId] = userName; // Cache the name
             } else {
-              print('Debug: User not found in Firebase.');
+              print('Debug: User name not found for User ID: $userId');
             }
           }
         } catch (e) {
-          print('Error fetching user for Gift ID ${gift.id}: $e');
+          print('Error fetching user name for Gift ID ${gift.id}: $e');
         }
 
         // Add enriched data for this gift
         tempEnrichedGifts.add({
           'gift': gift,
-          'friendName': user?.name ?? 'Unknown User',
+          'friendName': userName ?? 'Unknown User', // Friend's name only
           'eventDate': event?.date ?? 'No date',
         });
       }
@@ -99,17 +99,12 @@ class _MyPledgedGiftsPageState extends State<MyPledgedGiftsPage> {
         enrichedGifts = tempEnrichedGifts;
       });
       print('Debug: Finished loading pledged gifts. Total: ${enrichedGifts.length}');
+      syncStatusManager.updateStatus("Synced");
     } catch (e) {
       print('Error loading pledged gifts: $e');
+      syncStatusManager.updateStatus("Offline");
     }
   }
-
-
-
-
-
-
-
 
   @override
   Widget build(BuildContext context) {
