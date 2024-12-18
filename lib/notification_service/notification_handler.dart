@@ -24,6 +24,17 @@ class NotificationHandler {
       print('[ERROR] Failed to upload FCM token: $e');
     }
   }
+  Future<String?> _fetchUserName(int userId) async {
+    try {
+      final userDoc = await _firestore.collection('users').doc(userId.toString()).get();
+      if (userDoc.exists) {
+        return userDoc.data()?['name'] as String?;
+      }
+    } catch (e) {
+      print('[ERROR] Failed to fetch user name: $e');
+    }
+    return 'Unknown User';
+  }
 
   /// Send notifications when a gift is updated
   Future<void> sendGiftUpdateNotification({
@@ -66,9 +77,10 @@ class NotificationHandler {
 
   /// Send notifications when an event is updated or created
   Future<void> sendEventUpdateNotification({
-    required String eventName,
+    required String? eventName,
     required String updateType, // "Created", "Updated", "Deleted"
     required List<int> friendIds,
+    required int creatorId,
   }) async {
     try {
       print('[HANDLER] Fetching friend tokens...');
@@ -79,8 +91,10 @@ class NotificationHandler {
         return;
       }
 
+      // Fetch the logged-in user's name (event creator)
+      final creatorName = await _fetchUserName(creatorId) ?? 'Someone';
       final title = "Event $updateType: $eventName";
-      final body = "The event '$eventName' has been $updateType.";
+      final body = "$creatorName has $updateType the event '$eventName'.";
 
       print('[HANDLER] Sending notifications to friends...');
       for (final token in friendTokens) {
@@ -102,6 +116,8 @@ class NotificationHandler {
       print('[ERROR] Failed to send event update notifications: $e');
     }
   }
+
+
 
   /// Send notification when a gift is pledged
   Future<void> sendGiftPledgeNotification({

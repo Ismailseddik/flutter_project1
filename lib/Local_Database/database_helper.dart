@@ -513,7 +513,11 @@ class DatabaseHelper {
 
     return maps.map((map) => Friend.fromMap(map)).toList();
   }
-// Get events by friend ID
+  Future<List<int>> getFriendIds(int userId) async {
+    final db = await database;
+    final result = await db.query('friends', where: 'userId = ?', whereArgs: [userId]);
+    return result.map((row) => row['friendId'] as int).toList();
+  }
 // Get events by friend ID
   Future<List<Event>> getFriendEvents(int friendId) async {
     final db = await instance.database;
@@ -529,55 +533,6 @@ class DatabaseHelper {
   }
 
 
-  /*// ======== DUMMY DATA FOR TESTING ========
-
-  Future<void> addDummyData(int userId) async {
-    final db = await instance.database;
-
-    // Add dummy users (to represent friends)
-    final dummyUsers = [
-      User(id: 101, name: 'Alice', email: 'alice@example.com', password: 'password', preferences: ''),
-      User(id: 102, name: 'Bob', email: 'bob@example.com', password: 'password', preferences: ''),
-      User(id: 103, name: 'Charlie', email: 'charlie@example.com', password: 'password', preferences: ''),
-    ];
-
-    for (var user in dummyUsers) {
-      await db.insert('users', user.toMap());
-    }
-
-    // Add dummy friends
-    final dummyFriends = [
-      Friend(userId: userId, friendId: 101),
-      Friend(userId: userId, friendId: 102),
-      Friend(userId: userId, friendId: 103),
-    ];
-
-    for (var friend in dummyFriends) {
-      await addFriend(friend);
-    }
-
-    // Add dummy events for friends
-    final dummyEvents = [
-      Event(name: 'Birthday Party', date: 'Dec 25', location: 'Home', description: '', userId: 101),
-      Event(name: 'Wedding Anniversary', date: 'Jan 1', location: 'Resort', description: '', userId: 102),
-      Event(name: 'Baby Shower', date: 'Feb 14', location: 'Hall', description: '', userId: 103),
-    ];
-
-    for (var event in dummyEvents) {
-      await insertEvent(event);
-    }
-
-    // Add dummy gifts for events
-    final dummyGifts = [
-      Gift(name: 'Smart Watch', description: 'Tech gift', category: 'Electronics', price: 200, status: 'Pledged', eventId: 1, friendId: 101),
-      Gift(name: 'Perfume', description: 'Fashion gift', category: 'Fashion', price: 50, status: 'Available', eventId: 2, friendId: 102),
-      Gift(name: 'Teddy Bear', description: 'Toy gift', category: 'Toys', price: 20, status: 'Available', eventId: 3, friendId: 103),
-    ];
-
-    for (var gift in dummyGifts) {
-      await insertGift(gift);
-    }
-  }*/
   // ======== SYNCING METHODS ========
 
   Future<List<User>> getAllUsers() async {

@@ -8,6 +8,8 @@ import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import '../Firebase_Database/firebase_helper.dart';
+import '../Local_Database/database_helper.dart';
 //import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 class NotificationService {
   // Singleton instance
@@ -26,6 +28,8 @@ class NotificationService {
   final List<String> _scopes = [
     'https://www.googleapis.com/auth/firebase.messaging'
   ];
+  final dbHelper = DatabaseHelper.instance;
+  final FBhelper = FirebaseHelper.instance;
   Completer<void>? _tokenLock; // To prevent multiple token generations
   /// Initialize the service and generate OAuth Access Token
   Future<void> init(BuildContext context) async {
@@ -37,6 +41,7 @@ class NotificationService {
         print('[FCM] New message received: ${message.notification?.title}');
         _showInAppPopup(context, message.notification?.title ?? '', message.notification?.body ?? '');
       });
+
       await _firebaseMessaging.getToken().then((token) {
         print('[INIT] Firebase Messaging Token: $token');
       });

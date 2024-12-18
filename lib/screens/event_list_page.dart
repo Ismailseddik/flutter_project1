@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
+import '../notification_service/notification_handler.dart';
 import '../styles.dart';
 import '../widgets/AppBarWithSyncStatus.dart';
 import '../Local_Database/database_helper.dart';
@@ -86,6 +87,12 @@ class _EventListPageState extends State<EventListPage> {
 
                 try {
                   await DatabaseHelper.instance.updateEvent(event.id!, updatedEvent);
+                  await NotificationHandler().sendEventUpdateNotification(
+                    eventName: updatedEvent['name'],
+                    updateType: "Updated",
+                    friendIds: await DatabaseHelper.instance.getFriendIds(widget.userId), // Fetch friends to notify
+                    creatorId: widget.userId,
+                  );
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Event updated successfully!')),
                   );
@@ -131,6 +138,12 @@ class _EventListPageState extends State<EventListPage> {
     if (confirmed == true) {
       try {
         await DatabaseHelper.instance.deleteEventWithCascading(eventId);
+        await NotificationHandler().sendEventUpdateNotification(
+          eventName: 'Event $eventId', // Optionally replace with actual event name
+          updateType: "Deleted",
+          friendIds: await DatabaseHelper.instance.getFriendIds(widget.userId), // Fetch friends to notify
+          creatorId: widget.userId,
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Event and associated gifts deleted successfully!')),
         );
@@ -275,6 +288,12 @@ class _EventListPageState extends State<EventListPage> {
                     );
 
                     await db.insertEvent(event);
+                    await NotificationHandler().sendEventUpdateNotification(
+                      eventName: event.name,
+                      updateType: "Created",
+                      friendIds: await db.getFriendIds(widget.userId), // Fetch friends to notify
+                      creatorId: widget.userId,
+                    );
                     Navigator.pop(context);
                     _loadEvents();
                   },
