@@ -290,28 +290,47 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
 // === NEW DROPDOWN METHOD FOR NOTIFICATIONS ===
   void _showNotificationsDropdown() {
-    final notifications = NotificationService().notifications;
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
-        height: 300,
-        padding: EdgeInsets.all(16),
-        child: notifications.isEmpty
-            ? Center(child: Text("No Notifications"))
-            : ListView.builder(
-          itemCount: notifications.length,
-          itemBuilder: (context, index) {
-            final notification = notifications[index];
-            return ListTile(
-              leading: Icon(Icons.notifications, color: Colors.teal),
-              title: Text(notification['title'] ?? 'No Title'),
-              subtitle: Text(notification['body'] ?? 'No Body'),
-            );
-          },
-        ),
+      builder: (context) => StreamBuilder<List<Map<String, dynamic>>>(
+        stream: NotificationService().getNotificationStream(widget.userId.toString()), // Real-time stream
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator()); // Show loading indicator
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: Text('Error loading notifications: ${snapshot.error}'));
+          }
+
+          final notifications = snapshot.data ?? [];
+
+          return Container(
+            height: 300,
+            padding: EdgeInsets.all(16),
+            child: notifications.isEmpty
+                ? Center(child: Text("No Notifications"))
+                : ListView.builder(
+              itemCount: notifications.length,
+              itemBuilder: (context, index) {
+                final notification = notifications[index];
+                return ListTile(
+                  leading: Icon(Icons.notifications, color: Colors.teal),
+                  title: Text(notification['title'] ?? 'No Title'),
+                  subtitle: Text(notification['body'] ?? 'No Body'),
+                  trailing: Text(
+                    notification['timestamp']?.toDate().toString() ?? '', // Show timestamp if available
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                );
+              },
+            ),
+          );
+        },
       ),
     );
   }
+
 // === END OF DROPDOWN METHOD ===
 
   @override

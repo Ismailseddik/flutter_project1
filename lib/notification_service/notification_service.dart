@@ -123,6 +123,16 @@ class NotificationService {
       print('[ERROR] Error sending FCM notification: $e');
     }
   }
+  Stream<List<Map<String, dynamic>>> getNotificationStream(String userId) {
+    print('[NotificationService] Fetching notifications for user: $userId');
+    return FirebaseFirestore.instance
+        .collection('notifications')
+        .where('recipientId', isEqualTo: userId) // Filter notifications by user ID
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) => doc.data()).toList();
+    });
+  }
 
   /// Upload the FCM token to Firestore for a user
   Future<void> saveTokenToFirestore({
