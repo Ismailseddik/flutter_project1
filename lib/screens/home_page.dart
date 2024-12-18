@@ -1,9 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
+import '../main.dart';
 import '../styles.dart';
 import '../widgets/AppBarWithSyncStatus.dart';
-import '../widgets/common_header.dart';
+import '../widgets/notification_bell.dart';
 import '../widgets/profile_section.dart';
 import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
@@ -35,6 +36,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int giftsPledgedCount = 0; // Number of gifts pledged
   int friendsCount = 0; // Number of friends added
   final NotificationHandler _notificationHandler = NotificationHandler();
+  Stream<QuerySnapshot>? notificationsStream;
   @override
   void initState() {
     super.initState();
@@ -43,6 +45,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _loadUserInfo(); // Fetch user's name
     _loadFriends(); // Fetch friends
     _loadAnalytics(); // Load analytics data
+    // Start listening to notifications
+    _listenForRealTimeNotifications();
   }
 
   Future<void> _initializeNotifications() async {
@@ -100,6 +104,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    //NotificationService().initializeLocalNotifications();
+    NotificationService().listenForNewNotifications(widget.userId.toString());
     _initializeNotifications();
     _loadUserInfo();
     _loadFriends();
@@ -136,7 +142,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<Map<String, int>> _fetchAnalytics() async {
+/*  Future<Map<String, int>> _fetchAnalytics() async {
     final db = DatabaseHelper.instance;
 
     try {
@@ -161,7 +167,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'friendsCount': 0,
       };
     }
-  }
+  }*/
 
   void rebuildAnalytics() {
     _loadAnalytics();
@@ -292,44 +298,94 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _showNotificationsDropdown() {
     showModalBottomSheet(
       context: context,
-      builder: (context) => StreamBuilder<List<Map<String, dynamic>>>(
-        stream: NotificationService().getNotificationStream(widget.userId.toString()), // Real-time stream
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator()); // Show loading indicator
-          }
+      builder: (context) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: NotificationService().listenForNewNotifications(widget.userId.toString()),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Center(child: CircularProgressIndicator()); // Loading spinner
+            }
 
-          if (snapshot.hasError) {
-            return Center(child: Text('Error loading notifications: ${snapshot.error}'));
-          }
+            if (snapshot.hasError) {
+              return Center(child: Text("Error: ${snapshot.error}")); // Error handling
+            }
 
-          final notifications = snapshot.data ?? [];
+            final notifications = snapshot.data?.docs ?? [];
+            final unreadNotifications = notifications
+                .where((doc) => !(doc['isRead'] ?? false))
+                .toList();
+            return Container(
+              height: 300,
+              padding: EdgeInsets.all(16),
+              child: notifications.isEmpty
+                  ? Center(child: Text("No Notifications"))
+                  : ListView.builder(
+                itemCount: notifications.length,
+                itemBuilder: (context, index) {
+                  final notification = notifications[index];
+                  final notificationId = notification.id;
 
-          return Container(
-            height: 300,
-            padding: EdgeInsets.all(16),
-            child: notifications.isEmpty
-                ? Center(child: Text("No Notifications"))
-                : ListView.builder(
-              itemCount: notifications.length,
-              itemBuilder: (context, index) {
-                final notification = notifications[index];
-                return ListTile(
-                  leading: Icon(Icons.notifications, color: Colors.teal),
-                  title: Text(notification['title'] ?? 'No Title'),
-                  subtitle: Text(notification['body'] ?? 'No Body'),
-                  trailing: Text(
-                    notification['timestamp']?.toDate().toString() ?? '', // Show timestamp if available
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                );
-              },
-            ),
-          );
-        },
-      ),
+                  return ListTile(
+                    leading: Icon(
+                      Icons.notifications,
+                      color: notification['isRead'] ?? false
+                          ? Colors.grey
+                          : Colors.teal,
+                    ),
+                    title: Text(notification['title'] ?? 'No Title'),
+                    subtitle: Text(notification['body'] ?? 'No Body'),
+                    onTap: () async {
+                      // Mark the notification as read when clicked
+                      await NotificationService()
+                          .markNotificationAsRead(notificationId);
+
+                      setState(() {}); // Update the UI
+                    },
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
     );
   }
+  /// Listen for new notifications and display a popup
+  void _listenForRealTimeNotifications() {
+    final stream = NotificationService().listenForNewNotifications(widget.userId.toString());
+
+    stream.listen((snapshot) {
+      print("[DEBUG] Listening to notifications...");
+
+      if (snapshot.docs.isNotEmpty) {
+        final newNotification = snapshot.docs.last;
+        final title = newNotification['title'] ?? 'No Title';
+        final body = newNotification['body'] ?? 'No Body';
+
+        print("[DEBUG] New Notification Received - Title: $title, Body: $body");
+
+        // Show a popup SnackBar
+        scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text('$title: $body'),
+            duration: Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'View',
+              onPressed: () {
+                _showNotificationsDropdown(); // Open dropdown when clicked
+              },
+            ),
+          ),
+        );
+      } else {
+        print("[DEBUG] No new notifications received.");
+      }
+    }, onError: (e) {
+      print("[ERROR] Error in listening to notifications: $e");
+    });
+  }
+
+
 
 // === END OF DROPDOWN METHOD ===
 
@@ -362,14 +418,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: SingleChildScrollView(
             child: Column(
               children: [
-                ProfileSection(
-                  userName: userName.isNotEmpty ? userName : 'Loading...',
-                  userId: widget.userId,
-                  profileImagePath: profileImagePath, // <-- Pass the dynamic path
-                  onProfileIconTapped: () async {
-                    await Navigator.pushNamed(context, '/profile', arguments: widget.userId);
-                    rebuildAnalytics(); // Ensure the image and analytics are refreshed
-                  },
+                Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    // Centered Profile Section
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 20.0), // Adjust spacing
+                        child: ProfileSection(
+                          userName: userName.isNotEmpty ? userName : 'Loading...',
+                          userId: widget.userId,
+                          profileImagePath: profileImagePath,
+                          onProfileIconTapped: () async {
+                            await Navigator.pushNamed(context, '/profile', arguments: widget.userId);
+                            rebuildAnalytics(); // Refresh analytics
+                          },
+                        ),
+                      ),
+                    ),
+                    // Notification Bell Positioned at Top-Right
+                    Positioned(
+                      right: 20,
+                      top: 10,
+                      child: NotificationBell(
+                        userId: widget.userId.toString(),
+                        onBellPressed: _showNotificationsDropdown,
+                      ),
+                    ),
+                  ],
                 ),
                 // === NEW NOTIFICATION BUTTON BELOW PROFILE SECTION ===
                 Padding(

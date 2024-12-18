@@ -187,6 +187,7 @@ class NotificationHandler {
         'title': title,
         'body': body,
         'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
       });
       print('[SUCCESS] Notification saved to Firestore.');
     } catch (e) {
