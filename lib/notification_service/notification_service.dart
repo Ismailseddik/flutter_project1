@@ -5,7 +5,7 @@ import 'package:flutter/src/widgets/framework.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:flutter/services.dart' show rootBundle;
 class NotificationService {
   // Singleton instance
   static final NotificationService _instance = NotificationService._internal();
@@ -18,7 +18,7 @@ class NotificationService {
   final List<Map<String, String>> _notifications = []; // Local notifications cache
   List<Map<String, String>> get notifications => _notifications;
   /// Path to your Service Account JSON file
-  final String _serviceAccountPath = 'assets/trial-15cd5-2eecbe341c75.json';
+  final String _serviceAccountPath = 'assets/trial-15cd5-f15032025cd4.json';
 
   /// Scopes required for Firebase Cloud Messaging
   final List<String> _scopes = [
@@ -56,7 +56,7 @@ class NotificationService {
     print('[OAUTH] Generating OAuth Access Token...');
     try {
       final serviceAccountJson =
-      File(_serviceAccountPath).readAsStringSync(); // Load Service Account JSON
+      await rootBundle.loadString(_serviceAccountPath); // Load Service Account JSON
       print('[OAUTH] Service Account JSON loaded successfully.');
 
       final accountCredentials =
