@@ -18,7 +18,7 @@ class NotificationService {
   final List<Map<String, String>> _notifications = []; // Local notifications cache
   List<Map<String, String>> get notifications => _notifications;
   /// Path to your Service Account JSON file
-  final String _serviceAccountPath = 'assets/service-account.json';
+  final String _serviceAccountPath = 'assets/trial-15cd5-2eecbe341c75.json';
 
   /// Scopes required for Firebase Cloud Messaging
   final List<String> _scopes = [
