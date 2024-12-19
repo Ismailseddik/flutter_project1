@@ -37,6 +37,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int friendsCount = 0; // Number of friends added
   final NotificationHandler _notificationHandler = NotificationHandler();
   Stream<QuerySnapshot>? notificationsStream;
+  // Map for friend names
+  late Map<int, String> friendNames = {};
   @override
   void initState() {
     super.initState();
@@ -129,45 +131,52 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // Fetch friends for the logged-in user
   Future<void> _loadFriends() async {
-    final db = DatabaseHelper.instance;
+    final dbHelper = DatabaseHelper.instance;
+    final firebaseHelper = FirebaseHelper.instance;
 
     try {
-      final fetchedFriends = await db.getFriends(widget.userId);
+      // Fetch friends list
+      final fetchedFriends = await dbHelper.getFriends(widget.userId);
 
+      print('Debug: Fetched friends from local database: $fetchedFriends');
+
+      // Clear the friendNames map before populating
+      friendNames.clear();
+
+      for (final friend in fetchedFriends) {
+        String friendName = "Unknown Friend";
+
+        try {
+          // Fetch the friend's name using FirebaseHelper's getUserNameById
+          print('Debug: Fetching name for friendId: ${friend.friendId}');
+          final fetchedName = await firebaseHelper.getUserNameById(friend.friendId.toString());
+
+          if (fetchedName != null) {
+            friendName = fetchedName;
+            print('Debug: Name found for friendId ${friend.friendId}: $friendName');
+          } else {
+            print('Debug: No name found for friendId ${friend.friendId}');
+          }
+        } catch (e) {
+          print('Error fetching friend name for ID ${friend.friendId}: $e');
+        }
+
+        // Populate the friendNames map
+        friendNames[friend.friendId] = friendName;
+      }
+
+      // Update the state
       setState(() {
-        friends = fetchedFriends;
+        friends = fetchedFriends; // Preserve the original friends list
       });
+
+      print('Debug: Final friendNames map: $friendNames');
     } catch (e) {
       print('Error fetching friends: $e');
     }
   }
 
-/*  Future<Map<String, int>> _fetchAnalytics() async {
-    final db = DatabaseHelper.instance;
 
-    try {
-      // Fetch counts
-      final events = await db.getEvents(widget.userId);
-      final allGifts = await db.getAllGifts();
-      final pledgedGifts = allGifts
-          .where((gift) => gift.status == 'Pledged' && gift.friendId == widget.userId)
-          .toList();
-      final friendsList = await db.getFriends(widget.userId);
-
-      return {
-        'eventsCount': events.length,
-        'giftsPledgedCount': pledgedGifts.length,
-        'friendsCount': friendsList.length,
-      };
-    } catch (e) {
-      print('Error loading analytics data: $e');
-      return {
-        'eventsCount': 0,
-        'giftsPledgedCount': 0,
-        'friendsCount': 0,
-      };
-    }
-  }*/
 
   void rebuildAnalytics() {
     _loadAnalytics();
@@ -252,7 +261,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _showSnackBar('Please enter an email.');
       return;
     }
-
+    // Validate email format
+    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+$');
+    if (!emailRegex.hasMatch(email)) {
+      _showSnackBar('Please enter a valid email address.');
+      return;
+    }
     try {
       final firebaseHelper = FirebaseHelper.instance;
       final dbHelper = DatabaseHelper.instance;
@@ -558,8 +572,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ? Center(
                   child: Text(
                     'No friends found. Add some friends!',
-                    style:
-                    AppStyles.subtitleTextStyle.copyWith(fontSize: 18),
+                    style: AppStyles.subtitleTextStyle.copyWith(fontSize: 18),
                   ),
                 )
                     : ListView.builder(
@@ -568,6 +581,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   itemCount: friends.length,
                   itemBuilder: (context, index) {
                     final friend = friends[index];
+                    final friendName = friendNames[friend.friendId] ?? "Unknown Friend";
+
                     return Card(
                       margin: EdgeInsets.symmetric(vertical: 8),
                       child: ListTile(
@@ -576,22 +591,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           child: Icon(Icons.person, color: Colors.white),
                         ),
                         title: Text(
-                          'Friend ID: ${friend.friendId}',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
+                          friendName, // Display friend's name
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         subtitle: Text(
-                          'Associated User: ${friend.userId}',
+                          'Friend ID: ${friend.friendId}', // Keep the ID as well
                           style: TextStyle(color: Colors.grey),
                         ),
-                        trailing:
-                        Icon(Icons.arrow_forward_ios, color: Colors.teal),
+                        trailing: Icon(Icons.arrow_forward_ios, color: Colors.teal),
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => FriendEventListPage(
-                                  friendId: friend.friendId),
+                              builder: (context) =>
+                                  FriendEventListPage(friendId: friend.friendId),
                             ),
                           );
                         },
@@ -599,6 +612,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     );
                   },
                 ),
+
               ],
             ),
           ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../notification_service/notification_handler.dart';
 import '../styles.dart';
 import '../Local_Database/database_helper.dart';
 import '../Firebase_Database/firebase_helper.dart';
@@ -252,6 +253,19 @@ class _GiftListPageState extends State<GiftListPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gift deleted successfully!')),
         );
+        String currentUserName = 'Unknown User';
+        final currentUserId = await DatabaseHelper.instance.getCurrentUserId();
+        if (currentUserId != null) {
+          currentUserName = await FirebaseHelper.instance.getUserNameById(currentUserId.toString()) ?? 'Unknown User';
+        }
+        await NotificationHandler().sendGiftUpdateNotification(
+          giftId: widget.id,
+          giftName: widget.id.toString(),
+          eventId: widget.eventId!,
+          newStatus: 'deleted',
+          friendIds: await DatabaseHelper.instance.getFriendIds(currentUserId!),
+          pledgerName: currentUserName,
+        );
         _loadGifts();
       } catch (e) {
         print('Error deleting gift: $e');
@@ -316,6 +330,19 @@ class _GiftListPageState extends State<GiftListPage> {
                   await DatabaseHelper.instance.updateGift(updatedGift.id!, updatedGift.toMap());
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Gift updated successfully!')),
+                  );
+                  String currentUserName = 'Unknown User';
+                  final currentUserId = await DatabaseHelper.instance.getCurrentUserId();
+                  if (currentUserId != null) {
+                    currentUserName = await FirebaseHelper.instance.getUserNameById(currentUserId.toString()) ?? 'Unknown User';
+                  }
+                  await NotificationHandler().sendGiftUpdateNotification(
+                    giftId: updatedGift.id!,
+                    giftName: updatedGift.name,
+                    eventId: updatedGift.eventId!,
+                    newStatus: 'updated',
+                    friendIds: await DatabaseHelper.instance.getFriendIds(currentUserId!), // Ensure this returns a valid list
+                    pledgerName: currentUserName, // Correctly fetched user's name
                   );
                   _loadGifts();
                   Navigator.pop(context);

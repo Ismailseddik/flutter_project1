@@ -41,39 +41,43 @@ class NotificationHandler {
     required int giftId,
     required String giftName,
     required int eventId,
+    required List<int> friendIds, // Explicitly notify friends
     required String newStatus,
     required String pledgerName,
   }) async {
     try {
-      print('[HANDLER] Fetching event owner token for eventId: $eventId');
-      final eventOwnerToken = await _fetchEventOwnerToken(eventId);
+      print('[HANDLER] Fetching friend tokens...');
+      final friendTokens = await _fetchFriendTokens(friendIds); // Fetch friend tokens
 
-      if (eventOwnerToken == null) {
-        print('[ERROR] Event owner token not found.');
+      if (friendTokens.isEmpty) {
+        print('[ERROR] No friends found to notify.');
         return;
       }
 
       final title = "Gift Update: $giftName";
       final body = "The gift '$giftName' has been $newStatus by $pledgerName.";
 
-      print('[HANDLER] Sending gift update notification...');
-      await _notificationService.sendNotificationToUser(
-        recipientToken: eventOwnerToken,
-        title: title,
-        body: body,
-      );
+      print('[HANDLER] Sending notifications to friends...');
+      for (final token in friendTokens) {
+        await _notificationService.sendNotificationToUser(
+          recipientToken: token,
+          title: title,
+          body: body,
+        );
+      }
 
       await _createNotificationRecord(
-        recipientId: eventId.toString(),
+        recipientId: friendIds.map((id) => id.toString()).toList(),
         title: title,
         body: body,
       );
 
-      print('[SUCCESS] Notification sent and recorded for gift update.');
+      print('[SUCCESS] Notifications sent and recorded for gift update.');
     } catch (e) {
       print('[ERROR] Failed to send gift update notification: $e');
     }
   }
+
 
   /// Send notifications when an event is updated or created
   Future<void> sendEventUpdateNotification({
