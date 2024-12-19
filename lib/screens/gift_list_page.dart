@@ -61,6 +61,8 @@ class _GiftListPageState extends State<GiftListPage> {
 
           // Save them locally in case they were updated in Firebase
           for (final gift in gifts) {
+            await db.updateGift(gift.id!, {'category': gift.category});// Update category locally
+            await db.updateGift(gift.id!, {'price': gift.price});// Update price locally
             await db.updateGift(gift.id!, {'status': gift.status}); // Update status locally
           }
         }

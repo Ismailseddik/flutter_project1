@@ -337,6 +337,9 @@ class FirebaseHelper {
         if (!localFriendEvents.any((e) => e.id == event.id)) {
           await dbHelper.insertEvent(event);
           print('[SYNC] Added event with ID: ${event.id} to local database');
+        }else {
+          // Update the event's fields if it already exists
+          await dbHelper.updateEvent(event.id!, event.toMap());
         }
       }
 
