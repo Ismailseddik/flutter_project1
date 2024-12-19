@@ -51,6 +51,8 @@ class _GiftListPageState extends State<GiftListPage> {
 
     try {
       if (widget.eventId != null) {
+        // Step 1: Sync gifts for the event
+        await firebase.syncFriendGifts(db, widget.eventId!);
         final userId = await db.getCurrentUserId();
         if (userId != null) {
           await firebase.syncWithLocalDatabase(db, userId);

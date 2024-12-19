@@ -308,6 +308,102 @@ class FirebaseHelper {
   }
 
   // === SYNCING FUNCTIONS ===
+  Future<void> syncFriendEvents(DatabaseHelper dbHelper, int friendId) async {
+    try {
+      print('[SYNC] Starting sync for friend events with friendId: $friendId');
+      syncStatusManager.updateStatus("Syncing...");
+      // Validate if the friendId exists in the `users` collection
+      final userDoc = await _firestore.collection('users').doc(friendId.toString()).get();
+      if (!userDoc.exists) {
+        print('[SYNC] Invalid friendId: $friendId. No user found.');
+        return; // Exit if the friendId is invalid
+      }
+
+      // Fetch all events for the friendId from Firebase
+      final friendEventsSnapshot = await _firestore
+          .collection('events')
+          .where('userId', isEqualTo: friendId)
+          .get();
+
+      // Extract event IDs from Firebase
+      final firebaseEventIds = friendEventsSnapshot.docs.map((doc) => doc.id).toSet();
+
+      // Fetch all local events for this friendId
+      final localFriendEvents = await dbHelper.getEvents(friendId);
+
+      // Step 1: Add missing events from Firebase to the local database
+      for (var eventDoc in friendEventsSnapshot.docs) {
+        final event = Event.fromMap(eventDoc.data());
+        if (!localFriendEvents.any((e) => e.id == event.id)) {
+          await dbHelper.insertEvent(event);
+          print('[SYNC] Added event with ID: ${event.id} to local database');
+        }
+      }
+
+      // Step 2: Remove events that are no longer in Firebase
+      for (var localEvent in localFriendEvents) {
+        if (!firebaseEventIds.contains(localEvent.id.toString())) {
+          await dbHelper.deleteEventWithCascading(localEvent.id!);
+          print('[SYNC] Removed deleted event with ID: ${localEvent.id} from local database');
+        }
+      }
+
+      print('[SYNC] Friend events sync completed successfully for friendId: $friendId');
+      syncStatusManager.updateStatus("Synced");
+    } catch (e) {
+      print('[SYNC ERROR] Failed to sync friend events: $e');
+      syncStatusManager.updateStatus("Offline");
+    }
+  }
+  Future<void> syncFriendGifts(DatabaseHelper dbHelper, int eventId) async {
+    try {
+      print('[SYNC] Starting sync for gifts with eventId: $eventId');
+      syncStatusManager.updateStatus("Syncing...");
+      // Validate if the eventId exists in the `events` collection
+      final eventDoc = await _firestore.collection('events').doc(eventId.toString()).get();
+      if (!eventDoc.exists) {
+        print('[SYNC] Invalid eventId: $eventId. No event found.');
+        return; // Exit if the eventId is invalid
+      }
+
+      // Fetch all gifts for the eventId from Firebase
+      final giftsSnapshot = await _firestore
+          .collection('gifts')
+          .where('eventId', isEqualTo: eventId)
+          .get();
+
+      // Extract gift IDs from Firebase
+      final firebaseGiftIds = giftsSnapshot.docs.map((doc) => doc.id).toSet();
+
+      // Fetch all local gifts for this eventId
+      final localGifts = await dbHelper.getGifts(eventId);
+
+      // Step 1: Add missing gifts from Firebase to the local database
+      for (var giftDoc in giftsSnapshot.docs) {
+        final gift = Gift.fromMap(giftDoc.data());
+        if (!localGifts.any((g) => g.id == gift.id)) {
+          await dbHelper.insertGift(gift);
+          print('[SYNC] Added gift with ID: ${gift.id} to local database');
+        }
+      }
+
+      // Step 2: Remove gifts that are no longer in Firebase
+      for (var localGift in localGifts) {
+        if (!firebaseGiftIds.contains(localGift.id.toString())) {
+          await dbHelper.deleteGift(localGift.id!);
+          print('[SYNC] Removed deleted gift with ID: ${localGift.id} from local database');
+          syncStatusManager.updateStatus("Offline");
+        }
+      }
+
+      print('[SYNC] Friend gifts sync completed successfully for eventId: $eventId');
+      syncStatusManager.updateStatus("Synced");
+    } catch (e) {
+      print('[SYNC ERROR] Failed to sync gifts: $e');
+    }
+  }
+
+
   Future<void> syncWithLocalDatabase(DatabaseHelper dbHelper, int userId) async {
     try {
       syncStatusManager.updateStatus("Syncing...");
