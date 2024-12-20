@@ -79,6 +79,33 @@ class _EventListPageState extends State<EventListPage> {
             ),
             ElevatedButton(
               onPressed: () async {
+                if (nameController.text.isEmpty ||
+                    dateController.text.isEmpty ||
+                    locationController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('All fields are required')),
+                  );
+                  return;
+                }
+                if (nameController.text.length < 3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Event name must be at least 3 characters long.')),
+                  );
+                  return;
+                }
+                final RegExp dateRegex = RegExp(r'^\d{2}/\d{2}/\d{4}$');
+                if (!dateRegex.hasMatch(dateController.text)) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Event date must follow the format DD/MM/YYYY.')),
+                  );
+                  return;
+                }
+                if (locationController.text.length < 3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Event location must be at least 3 characters long.')),
+                  );
+                  return;
+                }
                 final updatedEvent = {
                   'name': nameController.text,
                   'date': dateController.text,
@@ -273,7 +300,19 @@ class _EventListPageState extends State<EventListPage> {
                       );
                       return;
                     }
-
+                    if (nameController.text.length < 3) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Event name must be at least 3 characters long.')),
+                      );
+                      return;
+                    }
+                    final RegExp dateRegex = RegExp(r'^\d{2}/\d{2}/\d{4}$');
+                    if (!dateRegex.hasMatch(dateController.text)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Event date must follow the format DD/MM/YYYY.')),
+                      );
+                      return;
+                    }
                     setState(() {
                       isSaving = true;
                     });

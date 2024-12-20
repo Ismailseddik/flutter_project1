@@ -211,7 +211,41 @@ class _ProfilePageState extends State<ProfilePage> {
   // Update user profile
   Future<void> _updateUserProfile() async {
     final db = DatabaseHelper.instance;
-
+// Input validation
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+    final RegExp emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'); // Email validation
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Name cannot be empty.')),
+      );
+      return;
+    }
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Email cannot be empty.')),
+      );
+      return;
+    }
+    if (!emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please enter a valid email address.')),
+      );
+      return;
+    }
+    if(password.isEmpty){
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('password cant be empty')),
+      );
+      return;
+    }
+    if(password.length<6){
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('password must be atleast 6 characters')),
+      );
+      return;
+    }
     // Ensure no critical fields (like ID and password) are modified unintentionally
     final updatedUser = User(
       id: user!.id, // Keep the original ID

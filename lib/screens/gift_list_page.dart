@@ -200,7 +200,20 @@ class _GiftListPageState extends State<GiftListPage> {
                 );
                 return;
               }
-
+              final validateName = nameController.text.length;
+              if (validateName <= 3) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Gift name must be at least 3 characters long.')),
+                );
+                return;
+              }
+              final validatePrice = double.tryParse(priceController.text);
+              if (validatePrice == null || validatePrice <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Price must be a valid number greater than 0.')),
+                );
+                return;
+              }
               final newGift = Gift(
                 name: nameController.text,
                 category: categoryController.text,
@@ -319,6 +332,28 @@ class _GiftListPageState extends State<GiftListPage> {
             ),
             ElevatedButton(
               onPressed: () async {
+                if (nameController.text.isEmpty ||
+                    categoryController.text.isEmpty ||
+                    priceController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('All fields are required')),
+                  );
+                  return;
+                }
+                final validateName = nameController.text.length;
+                if (validateName <= 3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gift name must be at least 3 characters long.')),
+                  );
+                  return;
+                }
+                final validatePrice = double.tryParse(priceController.text);
+                if (validatePrice == null || validatePrice <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Price must be a valid number greater than 0.')),
+                  );
+                  return;
+                }
                 final updatedGift = Gift(
                   id: gift.id,
                   name: nameController.text,
