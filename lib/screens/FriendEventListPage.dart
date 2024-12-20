@@ -30,7 +30,8 @@ class _FriendEventListPageState extends State<FriendEventListPage> {
 
   Future<void> _loadFriendEvents() async {
     final db = DatabaseHelper.instance;
-
+    // Step 1: Sync friend events with Firebase
+    await FirebaseHelper.instance.syncFriendEvents(db, widget.friendId);
     try {
       // Fetch friend events using the existing `getFriendEvents` function
       final fetchedEvents = await db.getFriendEvents(widget.friendId);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../notification_service/notification_handler.dart';
 import '../styles.dart';
 import '../Local_Database/database_helper.dart';
 import '../Firebase_Database/firebase_helper.dart';
@@ -50,6 +51,8 @@ class _GiftListPageState extends State<GiftListPage> {
 
     try {
       if (widget.eventId != null) {
+        // Step 1: Sync gifts for the event
+        await firebase.syncFriendGifts(db, widget.eventId!);
         final userId = await db.getCurrentUserId();
         if (userId != null) {
           await firebase.syncWithLocalDatabase(db, userId);
@@ -58,6 +61,8 @@ class _GiftListPageState extends State<GiftListPage> {
 
           // Save them locally in case they were updated in Firebase
           for (final gift in gifts) {
+            await db.updateGift(gift.id!, {'category': gift.category});// Update category locally
+            await db.updateGift(gift.id!, {'price': gift.price});// Update price locally
             await db.updateGift(gift.id!, {'status': gift.status}); // Update status locally
           }
         }
@@ -195,7 +200,20 @@ class _GiftListPageState extends State<GiftListPage> {
                 );
                 return;
               }
-
+              final validateName = nameController.text.length;
+              if (validateName <= 3) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Gift name must be at least 3 characters long.')),
+                );
+                return;
+              }
+              final validatePrice = double.tryParse(priceController.text);
+              if (validatePrice == null || validatePrice <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Price must be a valid number greater than 0.')),
+                );
+                return;
+              }
               final newGift = Gift(
                 name: nameController.text,
                 category: categoryController.text,
@@ -252,6 +270,19 @@ class _GiftListPageState extends State<GiftListPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gift deleted successfully!')),
         );
+        String currentUserName = 'Unknown User';
+        final currentUserId = await DatabaseHelper.instance.getCurrentUserId();
+        if (currentUserId != null) {
+          currentUserName = await FirebaseHelper.instance.getUserNameById(currentUserId.toString()) ?? 'Unknown User';
+        }
+        await NotificationHandler().sendGiftUpdateNotification(
+          giftId: widget.id,
+          giftName: widget.id.toString(),
+          eventId: widget.eventId!,
+          newStatus: 'deleted',
+          friendIds: await DatabaseHelper.instance.getFriendIds(currentUserId!),
+          pledgerName: currentUserName,
+        );
         _loadGifts();
       } catch (e) {
         print('Error deleting gift: $e');
@@ -301,6 +332,28 @@ class _GiftListPageState extends State<GiftListPage> {
             ),
             ElevatedButton(
               onPressed: () async {
+                if (nameController.text.isEmpty ||
+                    categoryController.text.isEmpty ||
+                    priceController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('All fields are required')),
+                  );
+                  return;
+                }
+                final validateName = nameController.text.length;
+                if (validateName <= 3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Gift name must be at least 3 characters long.')),
+                  );
+                  return;
+                }
+                final validatePrice = double.tryParse(priceController.text);
+                if (validatePrice == null || validatePrice <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Price must be a valid number greater than 0.')),
+                  );
+                  return;
+                }
                 final updatedGift = Gift(
                   id: gift.id,
                   name: nameController.text,
@@ -316,6 +369,19 @@ class _GiftListPageState extends State<GiftListPage> {
                   await DatabaseHelper.instance.updateGift(updatedGift.id!, updatedGift.toMap());
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Gift updated successfully!')),
+                  );
+                  String currentUserName = 'Unknown User';
+                  final currentUserId = await DatabaseHelper.instance.getCurrentUserId();
+                  if (currentUserId != null) {
+                    currentUserName = await FirebaseHelper.instance.getUserNameById(currentUserId.toString()) ?? 'Unknown User';
+                  }
+                  await NotificationHandler().sendGiftUpdateNotification(
+                    giftId: updatedGift.id!,
+                    giftName: updatedGift.name,
+                    eventId: updatedGift.eventId!,
+                    newStatus: 'updated',
+                    friendIds: await DatabaseHelper.instance.getFriendIds(currentUserId!), // Ensure this returns a valid list
+                    pledgerName: currentUserName, // Correctly fetched user's name
                   );
                   _loadGifts();
                   Navigator.pop(context);

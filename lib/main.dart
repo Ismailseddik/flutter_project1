@@ -29,7 +29,9 @@ void main() async {
  // await notificationService.init();
   runApp(MyApp());
 }
-
+// Define the Global Key for ScaffoldMessenger
+final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
+GlobalKey<ScaffoldMessengerState>();
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {

@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // For Firestore
 import '../SyncStatusManager.dart';
+import '../models/models.dart';
+import '../notification_service/notification_handler.dart';
 import '../styles.dart';
 import '../Local_Database/database_helper.dart';
 import '../Firebase_Database/firebase_helper.dart';
@@ -31,11 +33,67 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
   final ImagePicker _picker = ImagePicker();
   File? _savedImage; // Locally saved image
   bool _isUploading = false; // Upload status indicator
-
+  Gift? giftDetails; // Store gift details fetched from the database
+  bool isOwner = false; // Flag to determine if the user is the event owner
+  final dbHelper = DatabaseHelper.instance;
+  final fbhelper = FirebaseHelper.instance;
   @override
   void initState() {
     super.initState();
+    _initializeGiftDetails();
     _loadImageIfAvailable();
+  }
+  /// Initialize gift details and determine ownership
+  Future<void> _initializeGiftDetails() async {
+    try {
+      // Fetch the gift details
+      final gift = await dbHelper.getGiftById(widget.giftId);
+
+      if (gift != null) {
+        // Fetch the associated event to determine ownership
+        final event = await dbHelper.getEventById(gift.eventId!);
+        final currentUserId = await dbHelper.getCurrentUserId();
+
+        if (event != null && currentUserId != null && event.userId == currentUserId) {
+          setState(() {
+            isOwner = true; // The user owns this event
+          });
+        }
+
+        // Update the UI with fetched gift details
+        setState(() {
+          giftDetails = gift;
+        });
+      }
+    } catch (e) {
+      print('Error initializing gift details: $e');
+    }
+  }
+  Future<bool> _isCurrentUserOwner() async {
+    try {
+      final currentUserId = await DatabaseHelper.instance.getCurrentUserId();
+      if (currentUserId == null) return false;
+
+      final gift = await DatabaseHelper.instance.getGiftById(widget.giftId);
+      if (gift == null) return false;
+
+      final event = await DatabaseHelper.instance.getEventById(gift.eventId!);
+      if (event == null) return false;
+
+      return event.userId == currentUserId; // Check if the current user owns the event
+    } catch (e) {
+      print('Error checking ownership: $e');
+      return false; // Default to non-ownership on error
+    }
+  }
+  Future<String?> _fetchGiftDescription() async {
+    try {
+      final gift = await DatabaseHelper.instance.getGiftById(widget.giftId);
+      return gift?.description ?? 'No description available.';
+    } catch (e) {
+      print('Error fetching gift description: $e');
+      return null; // Return null on failure
+    }
   }
 
   // Load the saved image if it exists locally
@@ -201,16 +259,35 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
 
     if (pledged == true) {
       try {
+        // Update gift status in Firebase
         await firebase.updateGift(widget.giftId, {
           'status': 'Pledged',
           'friendId': currentUserId,
         });
+
+        // Fetch the current user's name
+        String userName = 'Unknown User';
+        try {
+          userName = await firebase.getUserNameById(currentUserId.toString()) ?? 'Unknown User';
+          print('Debug: Username fetched successfully - $userName');
+        } catch (e) {
+          print('Error fetching username: $e');
+        }
+
+        // Notify other users (e.g., the event creator)
+        await NotificationHandler().sendGiftPledgeNotification(
+          giftId: widget.giftId,
+          pledgerName: userName,
+          giftName: widget.giftName,
+        );
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gift pledged successfully!')),
+          SnackBar(content: Text('Gift pledged successfully! Notification sent.')),
         );
       } catch (e) {
         print('Error pledging gift on Firebase: $e');
         try {
+          // Update gift status locally
           await db.updateGift(widget.giftId, {
             'status': 'Pledged',
             'friendId': currentUserId,
@@ -227,6 +304,7 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
       Navigator.pop(context, true);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -253,6 +331,7 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  // Image Capture and Upload
                   GestureDetector(
                     onTap: _captureAndUploadImage,
                     child: Stack(
@@ -274,6 +353,8 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
                     ),
                   ),
                   SizedBox(height: 20),
+
+                  // Gift Name
                   Text(
                     widget.giftName,
                     style: AppStyles.headerTextStyle.copyWith(
@@ -282,17 +363,57 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
                     ),
                   ),
                   SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () => _pledgeGift(context),
-                    child: Text('Pledge to Gift'),
+
+                  // Gift Description (Dynamic Loading)
+                  FutureBuilder<String?>(
+                    future: _fetchGiftDescription(), // Fetch the description dynamically
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return Text(
+                          'Loading description...',
+                          style: AppStyles.subtitleTextStyle.copyWith(
+                            color: Colors.teal.shade800,
+                          ),
+                          textAlign: TextAlign.center,
+                        );
+                      } else if (snapshot.hasError || !snapshot.hasData) {
+                        return Text(
+                          'Failed to load description.',
+                          style: AppStyles.subtitleTextStyle.copyWith(
+                            color: Colors.red,
+                          ),
+                          textAlign: TextAlign.center,
+                        );
+                      } else {
+                        return Text(
+                          snapshot.data!,
+                          style: AppStyles.subtitleTextStyle.copyWith(
+                            color: Colors.teal.shade800,
+                          ),
+                          textAlign: TextAlign.center,
+                        );
+                      }
+                    },
                   ),
                   SizedBox(height: 20),
-                  Text(
-                    'This gift is perfect for your loved ones and will be a memorable addition to their collection.',
-                    style: AppStyles.subtitleTextStyle.copyWith(
-                      color: Colors.teal.shade800,
-                    ),
-                    textAlign: TextAlign.center,
+
+                  // Pledge Button (Conditionally Rendered for Non-Owners)
+                  FutureBuilder<bool>(
+                    future: _isCurrentUserOwner(), // Check if the user is the owner
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return CircularProgressIndicator(); // Show a loader while checking
+                      } else if (snapshot.hasError || !snapshot.hasData) {
+                        return SizedBox(); // Hide the button if an error occurs
+                      } else if (!snapshot.data!) {
+                        return ElevatedButton(
+                          onPressed: () => _pledgeGift(context),
+                          child: Text('Pledge to Gift'),
+                        );
+                      } else {
+                        return SizedBox(); // Hide the button for owners
+                      }
+                    },
                   ),
                 ],
               ),
@@ -302,4 +423,5 @@ class _GiftDetailsPageState extends State<GiftDetailsPage> {
       ),
     );
   }
+
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
+import '../notification_service/notification_handler.dart';
 import '../styles.dart';
 import '../widgets/AppBarWithSyncStatus.dart';
 import '../Local_Database/database_helper.dart';
@@ -78,6 +79,33 @@ class _EventListPageState extends State<EventListPage> {
             ),
             ElevatedButton(
               onPressed: () async {
+                if (nameController.text.isEmpty ||
+                    dateController.text.isEmpty ||
+                    locationController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('All fields are required')),
+                  );
+                  return;
+                }
+                if (nameController.text.length < 3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Event name must be at least 3 characters long.')),
+                  );
+                  return;
+                }
+                final RegExp dateRegex = RegExp(r'^\d{2}/\d{2}/\d{4}$');
+                if (!dateRegex.hasMatch(dateController.text)) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Event date must follow the format DD/MM/YYYY.')),
+                  );
+                  return;
+                }
+                if (locationController.text.length < 3) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Event location must be at least 3 characters long.')),
+                  );
+                  return;
+                }
                 final updatedEvent = {
                   'name': nameController.text,
                   'date': dateController.text,
@@ -86,6 +114,12 @@ class _EventListPageState extends State<EventListPage> {
 
                 try {
                   await DatabaseHelper.instance.updateEvent(event.id!, updatedEvent);
+                  await NotificationHandler().sendEventUpdateNotification(
+                    eventName: updatedEvent['name'],
+                    updateType: "Updated",
+                    friendIds: await DatabaseHelper.instance.getFriendIds(widget.userId), // Fetch friends to notify
+                    creatorId: widget.userId,
+                  );
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Event updated successfully!')),
                   );
@@ -131,6 +165,12 @@ class _EventListPageState extends State<EventListPage> {
     if (confirmed == true) {
       try {
         await DatabaseHelper.instance.deleteEventWithCascading(eventId);
+        await NotificationHandler().sendEventUpdateNotification(
+          eventName: 'Event $eventId', // Optionally replace with actual event name
+          updateType: "Deleted",
+          friendIds: await DatabaseHelper.instance.getFriendIds(widget.userId), // Fetch friends to notify
+          creatorId: widget.userId,
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Event and associated gifts deleted successfully!')),
         );
@@ -260,7 +300,19 @@ class _EventListPageState extends State<EventListPage> {
                       );
                       return;
                     }
-
+                    if (nameController.text.length < 3) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Event name must be at least 3 characters long.')),
+                      );
+                      return;
+                    }
+                    final RegExp dateRegex = RegExp(r'^\d{2}/\d{2}/\d{4}$');
+                    if (!dateRegex.hasMatch(dateController.text)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Event date must follow the format DD/MM/YYYY.')),
+                      );
+                      return;
+                    }
                     setState(() {
                       isSaving = true;
                     });
@@ -275,6 +327,12 @@ class _EventListPageState extends State<EventListPage> {
                     );
 
                     await db.insertEvent(event);
+                    await NotificationHandler().sendEventUpdateNotification(
+                      eventName: event.name,
+                      updateType: "Created",
+                      friendIds: await db.getFriendIds(widget.userId), // Fetch friends to notify
+                      creatorId: widget.userId,
+                    );
                     Navigator.pop(context);
                     _loadEvents();
                   },

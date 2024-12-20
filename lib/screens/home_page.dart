@@ -1,9 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../Firebase_Database/firebase_helper.dart';
+import '../main.dart';
 import '../styles.dart';
 import '../widgets/AppBarWithSyncStatus.dart';
-import '../widgets/common_header.dart';
+import '../widgets/notification_bell.dart';
 import '../widgets/profile_section.dart';
 import '../Local_Database/database_helper.dart';
 import '../models/models.dart';
@@ -15,7 +16,7 @@ import 'package:path_provider/path_provider.dart';
 import 'MyPledgedGiftsPage.dart';
 import 'event_list_page.dart';
 import '../notification_service/notification_service.dart'; // Import NotificationService
-
+import '../notification_service/notification_handler.dart';
 class HomePage extends StatefulWidget {
   final int userId; // Pass the logged-in user's ID
 
@@ -34,7 +35,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int eventsCount = 0; // Number of events created
   int giftsPledgedCount = 0; // Number of gifts pledged
   int friendsCount = 0; // Number of friends added
-
+  final NotificationHandler _notificationHandler = NotificationHandler();
+  Stream<QuerySnapshot>? notificationsStream;
+  // Map for friend names
+  late Map<int, String> friendNames = {};
   @override
   void initState() {
     super.initState();
@@ -43,14 +47,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _loadUserInfo(); // Fetch user's name
     _loadFriends(); // Fetch friends
     _loadAnalytics(); // Load analytics data
+    // Start listening to notifications
+    _listenForRealTimeNotifications();
   }
 
   Future<void> _initializeNotifications() async {
     try {
-      await NotificationService().init(context); // Initialize NotificationService
-      print('NotificationService initialized successfully.');
+      print('[HomePage] Initializing Notifications...');
+      await NotificationService().init(context);
+      await _uploadUserToken(); // Ensure token is uploaded
+      print('[HomePage] Notifications initialized successfully.');
     } catch (e) {
-      print('Error initializing NotificationService: $e');
+      print('[HomePage] Error initializing Notifications: $e');
+    }
+  }
+  Future<void> _uploadUserToken() async {
+    try {
+      final String? fcmToken = await NotificationService().getFirebaseMessagingToken();
+      if (fcmToken != null) {
+        await _notificationHandler.uploadUserToken(
+          userId: widget.userId.toString(),
+          fcmToken: fcmToken,
+        );
+        print('[HomePage] User FCM token uploaded successfully.');
+      } else {
+        print('[HomePage] FCM token is null.');
+      }
+    } catch (e) {
+      print('[HomePage] Error uploading FCM token: $e');
     }
   }
 
@@ -82,7 +106,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Ensure data is dynamically updated when the page comes into focus
+    //NotificationService().initializeLocalNotifications();
+    NotificationService().listenForNewNotifications(widget.userId.toString());
+    _initializeNotifications();
     _loadUserInfo();
     _loadFriends();
     rebuildAnalytics();
@@ -105,45 +131,52 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   // Fetch friends for the logged-in user
   Future<void> _loadFriends() async {
-    final db = DatabaseHelper.instance;
+    final dbHelper = DatabaseHelper.instance;
+    final firebaseHelper = FirebaseHelper.instance;
 
     try {
-      final fetchedFriends = await db.getFriends(widget.userId);
+      // Fetch friends list
+      final fetchedFriends = await dbHelper.getFriends(widget.userId);
 
+      print('Debug: Fetched friends from local database: $fetchedFriends');
+
+      // Clear the friendNames map before populating
+      friendNames.clear();
+
+      for (final friend in fetchedFriends) {
+        String friendName = "Unknown Friend";
+
+        try {
+          // Fetch the friend's name using FirebaseHelper's getUserNameById
+          print('Debug: Fetching name for friendId: ${friend.friendId}');
+          final fetchedName = await firebaseHelper.getUserNameById(friend.friendId.toString());
+
+          if (fetchedName != null) {
+            friendName = fetchedName;
+            print('Debug: Name found for friendId ${friend.friendId}: $friendName');
+          } else {
+            print('Debug: No name found for friendId ${friend.friendId}');
+          }
+        } catch (e) {
+          print('Error fetching friend name for ID ${friend.friendId}: $e');
+        }
+
+        // Populate the friendNames map
+        friendNames[friend.friendId] = friendName;
+      }
+
+      // Update the state
       setState(() {
-        friends = fetchedFriends;
+        friends = fetchedFriends; // Preserve the original friends list
       });
+
+      print('Debug: Final friendNames map: $friendNames');
     } catch (e) {
       print('Error fetching friends: $e');
     }
   }
 
-  Future<Map<String, int>> _fetchAnalytics() async {
-    final db = DatabaseHelper.instance;
 
-    try {
-      // Fetch counts
-      final events = await db.getEvents(widget.userId);
-      final allGifts = await db.getAllGifts();
-      final pledgedGifts = allGifts
-          .where((gift) => gift.status == 'Pledged' && gift.friendId == widget.userId)
-          .toList();
-      final friendsList = await db.getFriends(widget.userId);
-
-      return {
-        'eventsCount': events.length,
-        'giftsPledgedCount': pledgedGifts.length,
-        'friendsCount': friendsList.length,
-      };
-    } catch (e) {
-      print('Error loading analytics data: $e');
-      return {
-        'eventsCount': 0,
-        'giftsPledgedCount': 0,
-        'friendsCount': 0,
-      };
-    }
-  }
 
   void rebuildAnalytics() {
     _loadAnalytics();
@@ -228,7 +261,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _showSnackBar('Please enter an email.');
       return;
     }
-
+    // Validate email format
+    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+$');
+    if (!emailRegex.hasMatch(email)) {
+      _showSnackBar('Please enter a valid email address.');
+      return;
+    }
     try {
       final firebaseHelper = FirebaseHelper.instance;
       final dbHelper = DatabaseHelper.instance;
@@ -269,33 +307,100 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
+
 // === NEW DROPDOWN METHOD FOR NOTIFICATIONS ===
   void _showNotificationsDropdown() {
-    final notifications = NotificationService().notifications; // Fetch notifications from service
-
     showModalBottomSheet(
       context: context,
-      builder: (BuildContext context) {
-        return Container(
-          height: 300, // Height for the dropdown
-          padding: const EdgeInsets.all(16.0),
-          child: notifications.isEmpty
-              ? Center(child: Text("No Notifications"))
-              : ListView.builder(
-            itemCount: notifications.length,
-            itemBuilder: (context, index) {
-              final notification = notifications[index];
-              return ListTile(
-                leading: Icon(Icons.notifications, color: Colors.teal),
-                title: Text(notification['title'] ?? 'No Title'),
-                subtitle: Text(notification['body'] ?? 'No Body'),
-              );
-            },
-          ),
+      builder: (context) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: NotificationService().listenForNewNotifications(widget.userId.toString()),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Center(child: CircularProgressIndicator()); // Loading spinner
+            }
+
+            if (snapshot.hasError) {
+              return Center(child: Text("Error: ${snapshot.error}")); // Error handling
+            }
+
+            final notifications = snapshot.data?.docs ?? [];
+            final unreadNotifications = notifications
+                .where((doc) => !(doc['isRead'] ?? false))
+                .toList();
+            return Container(
+              height: 300,
+              padding: EdgeInsets.all(16),
+              child: notifications.isEmpty
+                  ? Center(child: Text("No Notifications"))
+                  : ListView.builder(
+                itemCount: notifications.length,
+                itemBuilder: (context, index) {
+                  final notification = notifications[index];
+                  final notificationId = notification.id;
+
+                  return ListTile(
+                    leading: Icon(
+                      Icons.notifications,
+                      color: notification['isRead'] ?? false
+                          ? Colors.grey
+                          : Colors.teal,
+                    ),
+                    title: Text(notification['title'] ?? 'No Title'),
+                    subtitle: Text(notification['body'] ?? 'No Body'),
+                    onTap: () async {
+                      // Mark the notification as read when clicked
+                      await NotificationService()
+                          .markNotificationAsRead(notificationId);
+
+                      setState(() {}); // Update the UI
+                    },
+                  );
+                },
+              ),
+            );
+          },
         );
       },
     );
   }
+  /// Listen for new notifications and display a popup
+  void _listenForRealTimeNotifications() {
+    final stream = NotificationService().listenForNewNotifications(widget.userId.toString());
+
+    stream.listen((snapshot) {
+      print("[DEBUG] Listening to notifications...");
+
+      if (snapshot.docs.isNotEmpty) {
+        final newNotification = snapshot.docs.last;
+        final title = newNotification['title'] ?? 'No Title';
+        final body = newNotification['body'] ?? 'No Body';
+
+        print("[DEBUG] New Notification Received - Title: $title, Body: $body");
+
+        // Show a popup SnackBar
+        scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text('$title: $body'),
+            duration: Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'View',
+              onPressed: () {
+                _showNotificationsDropdown(); // Open dropdown when clicked
+              },
+            ),
+          ),
+        );
+      } else {
+        print("[DEBUG] No new notifications received.");
+      }
+    }, onError: (e) {
+      print("[ERROR] Error in listening to notifications: $e");
+    });
+  }
+
+
+
 // === END OF DROPDOWN METHOD ===
 
   @override
@@ -327,14 +432,34 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           child: SingleChildScrollView(
             child: Column(
               children: [
-                ProfileSection(
-                  userName: userName.isNotEmpty ? userName : 'Loading...',
-                  userId: widget.userId,
-                  profileImagePath: profileImagePath, // <-- Pass the dynamic path
-                  onProfileIconTapped: () async {
-                    await Navigator.pushNamed(context, '/profile', arguments: widget.userId);
-                    rebuildAnalytics(); // Ensure the image and analytics are refreshed
-                  },
+                Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    // Centered Profile Section
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 20.0), // Adjust spacing
+                        child: ProfileSection(
+                          userName: userName.isNotEmpty ? userName : 'Loading...',
+                          userId: widget.userId,
+                          profileImagePath: profileImagePath,
+                          onProfileIconTapped: () async {
+                            await Navigator.pushNamed(context, '/profile', arguments: widget.userId);
+                            rebuildAnalytics(); // Refresh analytics
+                          },
+                        ),
+                      ),
+                    ),
+                    // Notification Bell Positioned at Top-Right
+                    Positioned(
+                      right: 20,
+                      top: 10,
+                      child: NotificationBell(
+                        userId: widget.userId.toString(),
+                        onBellPressed: _showNotificationsDropdown,
+                      ),
+                    ),
+                  ],
                 ),
                 // === NEW NOTIFICATION BUTTON BELOW PROFILE SECTION ===
                 Padding(
@@ -447,8 +572,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ? Center(
                   child: Text(
                     'No friends found. Add some friends!',
-                    style:
-                    AppStyles.subtitleTextStyle.copyWith(fontSize: 18),
+                    style: AppStyles.subtitleTextStyle.copyWith(fontSize: 18),
                   ),
                 )
                     : ListView.builder(
@@ -457,6 +581,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   itemCount: friends.length,
                   itemBuilder: (context, index) {
                     final friend = friends[index];
+                    final friendName = friendNames[friend.friendId] ?? "Unknown Friend";
+
                     return Card(
                       margin: EdgeInsets.symmetric(vertical: 8),
                       child: ListTile(
@@ -465,22 +591,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           child: Icon(Icons.person, color: Colors.white),
                         ),
                         title: Text(
-                          'Friend ID: ${friend.friendId}',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
+                          friendName, // Display friend's name
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         subtitle: Text(
-                          'Associated User: ${friend.userId}',
+                          'Friend ID: ${friend.friendId}', // Keep the ID as well
                           style: TextStyle(color: Colors.grey),
                         ),
-                        trailing:
-                        Icon(Icons.arrow_forward_ios, color: Colors.teal),
+                        trailing: Icon(Icons.arrow_forward_ios, color: Colors.teal),
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => FriendEventListPage(
-                                  friendId: friend.friendId),
+                              builder: (context) =>
+                                  FriendEventListPage(friendId: friend.friendId),
                             ),
                           );
                         },
@@ -488,6 +612,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     );
                   },
                 ),
+
               ],
             ),
           ),
